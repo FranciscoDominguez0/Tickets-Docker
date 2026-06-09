@@ -11,11 +11,13 @@ if (!function_exists('mysqli_connect')) {
 // ==============================
 // DATABASE CONFIG (DOCKER READY)
 // ==============================
-define('DB_HOST', 'db'); // 🔥 IMPORTANTE: nombre del contenedor
+define('DB_HOST', 'db');
 define('DB_PORT', '3306');
-define('DB_USER', 'root');
-define('DB_PASS', '12345678'); // ← debe coincidir con docker-compose
-define('DB_NAME', 'tickets_db'); // ← igual que docker-compose
+
+define('DB_USER', 'tickets_user');
+define('DB_PASS', 'tickets_pass_2026');
+
+define('DB_NAME', 'tickets_db');
 
 // ==============================
 // APP CONFIG

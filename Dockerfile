@@ -1,7 +1,7 @@
 FROM php:8.2-apache
 
 # =========================
-# 🔧 INSTALAR DEPENDENCIAS
+# DEPENDENCIAS
 # =========================
 RUN apt-get update && apt-get install -y \
     git \
@@ -16,12 +16,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # =========================
-# 📦 COMPOSER
+# COMPOSER
 # =========================
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # =========================
-# 🔥 EXTENSIONES PHP
+# EXTENSIONES PHP
 # =========================
 RUN docker-php-ext-configure gd \
     --with-freetype \
@@ -37,71 +37,48 @@ RUN docker-php-ext-install \
     zip
 
 # =========================
-# ⚡ OPCACHE
+# OPCACHE
 # =========================
 RUN echo "opcache.enable=1" > /usr/local/etc/php/conf.d/opcache.ini && \
     echo "opcache.memory_consumption=128" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.max_accelerated_files=10000" >> /usr/local/etc/php/conf.d/opcache.ini && \
-    echo "opcache.validate_timestamps=1" >> /usr/local/etc/php/conf.d/opcache.ini
+    echo "opcache.max_accelerated_files=10000" >> /usr/local/etc/php/conf.d/opcache.ini
 
 # =========================
-# 🔒 SEGURIDAD PHP
+# SEGURIDAD
 # =========================
 RUN echo "expose_php=Off" > /usr/local/etc/php/conf.d/security.ini && \
     echo "display_errors=Off" >> /usr/local/etc/php/conf.d/security.ini && \
-    echo "log_errors=On" >> /usr/local/etc/php/conf.d/security.ini && \
-    echo "session.cookie_httponly=1" >> /usr/local/etc/php/conf.d/security.ini && \
-    echo "session.use_strict_mode=1" >> /usr/local/etc/php/conf.d/security.ini
+    echo "log_errors=On" >> /usr/local/etc/php/conf.d/security.ini
 
 # =========================
-# ⚙️ CONFIG PHP
+# APACHE
 # =========================
-RUN echo "upload_max_filesize=32M" > /usr/local/etc/php/conf.d/uploads.ini && \
-    echo "post_max_size=32M" >> /usr/local/etc/php/conf.d/uploads.ini && \
-    echo "memory_limit=256M" >> /usr/local/etc/php/conf.d/uploads.ini && \
-    echo "max_execution_time=60" >> /usr/local/etc/php/conf.d/uploads.ini
-
-# =========================
-# 🌐 APACHE
-# =========================
-RUN a2enmod rewrite deflate headers
+RUN a2enmod rewrite headers deflate
 
 RUN echo "ServerTokens Prod" >> /etc/apache2/apache2.conf && \
     echo "ServerSignature Off" >> /etc/apache2/apache2.conf
 
-RUN echo "<Directory /var/www/html>" >> /etc/apache2/apache2.conf && \
-    echo "    Options -Indexes" >> /etc/apache2/apache2.conf && \
-    echo "    AllowOverride All" >> /etc/apache2/apache2.conf && \
-    echo "    Require all granted" >> /etc/apache2/apache2.conf && \
-    echo "</Directory>" >> /etc/apache2/apache2.conf
-
 # =========================
-# 📁 COPIAR PROYECTO
+# COPIAR PROYECTO
 # =========================
 COPY app/sistema-tickets /var/www/html/sistema-tickets
 
 WORKDIR /var/www/html/sistema-tickets
 
 # =========================
-# 📦 INSTALAR LIBRERÍAS COMPOSER
+# COMPOSER INSTALL
 # =========================
-RUN if [ -f composer.json ]; then \
-        composer install --no-dev --optimize-autoloader; \
-    fi
+RUN composer install --no-dev --optimize-autoloader
 
 # =========================
-# 🌐 DOCUMENT ROOT
+# DOCUMENT ROOT
 # =========================
 RUN sed -i 's#/var/www/html#/var/www/html/sistema-tickets#g' \
     /etc/apache2/sites-available/000-default.conf
 
 # =========================
-# 🔐 PERMISOS
+# PERMISOS
 # =========================
-RUN chown -R www-data:www-data /var/www/html && \
-    chmod -R 755 /var/www/html
+RUN chown -R www-data:www-data /var/www/html
 
-# =========================
-# 🚪 PUERTO
-# =========================
 EXPOSE 80
