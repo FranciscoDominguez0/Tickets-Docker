@@ -1,29 +1,36 @@
-# Secrets / config
-.config.php
-
-# Local env files
+# Configuración sensible
 .env
 .env.*
+.config.php
 
-# OS / IDE
-Thumbs.db
-.DS_Store
-.vscode/
-.idea/
-
-# PHP / composer
+# Composer
 vendor/
-composer.lock
 
-# Uploads (user-generated)
+# Logs
+*.log
+logs/
+
+# Cache y temporales
+cache/
+tmp/
+
+# Uploads de usuarios
 publico/uploads/
 upload/uploads/
 
-# Allow security hardening files inside ignored uploads
+# Permitir .htaccess dentro de uploads
 !publico/uploads/**/.htaccess
 !upload/uploads/**/.htaccess
 
-# Logs / cache
-*.log
-cache/
-tmp/
+# Datos locales de BD
+mysql_data/
+db_data/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows / Mac
+Thumbs.db
+.DS_Store
+desktop.ini
