@@ -1,0 +1,818 @@
+<?php
+require_once '../../config.php';
+require_once '../../includes/helpers.php';
+require_once '../../includes/Auth.php';
+
+if (!isset($_SESSION['staff_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
+requireLogin('agente');
+requireRolePermission('admin.access');
+$staff = getCurrentUser();
+$currentRoute = 'helptopics';
+
+$eid = empresaId();
+$helpTopicsHasEmpresaId = false;
+$departmentsHasEmpresaId = false;
+if (isset($mysqli) && $mysqli) {
+    try {
+        $res = $mysqli->query("SHOW COLUMNS FROM help_topics LIKE 'empresa_id'");
+        $helpTopicsHasEmpresaId = ($res && $res->num_rows > 0);
+    } catch (Throwable $e) {
+        $helpTopicsHasEmpresaId = false;
+    }
+    try {
+        $res = $mysqli->query("SHOW COLUMNS FROM departments LIKE 'empresa_id'");
+        $departmentsHasEmpresaId = ($res && $res->num_rows > 0);
+    } catch (Throwable $e) {
+    } catch (Throwable $e) {
+        $departmentsHasEmpresaId = false;
+    }
+
+    try {
+        $res = $mysqli->query("SHOW COLUMNS FROM help_topics LIKE 'is_public'");
+        if ($res && $res->num_rows === 0) {
+            $mysqli->query("ALTER TABLE help_topics ADD COLUMN is_public TINYINT(1) DEFAULT 1");
+        }
+    } catch (Throwable $e) {}
+}
+
+
+// Lógica para controlar el estado inicial del sidebar (similar al panel de administrador)
+$collapseSidebarMenu = false;
+$menuKey = 'agent_sidebar_menu_seen_' . (int)($_SESSION['staff_id'] ?? 0);
+if ((string)($_SESSION['sidebar_panel_mode'] ?? '') !== 'agent') {
+    unset($_SESSION[$menuKey]);
+    $_SESSION['sidebar_panel_mode'] = 'agent';
+}
+if (!isset($_SESSION[$menuKey])) {
+    $_SESSION[$menuKey] = 1;
+    $collapseSidebarMenu = true;
+}
+
+// Variables para mensajes (usar mensajes flash en sesión para PRG)
+$msg = '';
+$error = '';
+if (session_status() === PHP_SESSION_NONE) session_start();
+if (!empty($_SESSION['flash_msg'])) {
+    $msg = $_SESSION['flash_msg'];
+    unset($_SESSION['flash_msg']);
+}
+if (!empty($_SESSION['flash_error'])) {
+    $error = $_SESSION['flash_error'];
+    unset($_SESSION['flash_error']);
+}
+
+// Procesamiento de acciones POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validateCSRF()) {
+        $_SESSION['flash_error'] = 'Token CSRF inválido.';
+        header('Location: helptopics.php');
+        exit;
+    }
+    $action = $_POST['do'] ?? '';
+
+    switch ($action) {
+        case 'create':
+            $name = trim($_POST['topic'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            $deptId = !empty($_POST['dept_id']) ? (int)$_POST['dept_id'] : null;
+            $isActive = isset($_POST['isactive']) ? 1 : 0;
+            $isPublic = isset($_POST['ispublic']) ? 1 : 0;
+
+            if (empty($name)) {
+                $error = 'El nombre del tema es requerido';
+            } else {
+                global $mysqli;
+                if ($departmentsHasEmpresaId && $deptId) {
+                    $stmtDept = $mysqli->prepare('SELECT id FROM departments WHERE id = ? AND empresa_id = ? LIMIT 1');
+                    if ($stmtDept) {
+                        $stmtDept->bind_param('ii', $deptId, $eid);
+                        $stmtDept->execute();
+                        $okDept = (bool)$stmtDept->get_result()->fetch_assoc();
+                        if (!$okDept) {
+                            $deptId = null;
+                        }
+                    }
+                }
+
+                if ($helpTopicsHasEmpresaId) {
+                    $sql = "INSERT INTO help_topics (empresa_id, name, description, dept_id, is_active, is_public, created) 
+                            VALUES (?, ?, ?, ?, ?, ?, NOW())";
+                } else {
+                    $sql = "INSERT INTO help_topics (name, description, dept_id, is_active, is_public, created) 
+                            VALUES (?, ?, ?, ?, ?, NOW())";
+                }
+                $stmt = $mysqli->prepare($sql);
+                if ($helpTopicsHasEmpresaId) {
+                    $stmt->bind_param('issiii', $eid, $name, $description, $deptId, $isActive, $isPublic);
+                } else {
+                    $stmt->bind_param('ssiii', $name, $description, $deptId, $isActive, $isPublic);
+                }
+                if ($stmt->execute()) {
+                    $msg = 'Tema de ayuda creado exitosamente';
+                } else {
+                    $error = 'Error al crear el tema de ayuda';
+                }
+            }
+            break;
+
+        case 'update':
+            $topicId = (int)($_POST['id'] ?? 0);
+            $name = trim($_POST['topic'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            $deptId = !empty($_POST['dept_id']) ? (int)$_POST['dept_id'] : null;
+            $isActive = isset($_POST['isactive']) ? 1 : 0;
+            $isPublic = isset($_POST['ispublic']) ? 1 : 0;
+
+            if (empty($name)) {
+                $error = 'El nombre del tema es requerido';
+            } elseif ($topicId <= 0) {
+                $error = 'ID de tema inválido';
+            } else {
+                global $mysqli;
+                if ($departmentsHasEmpresaId && $deptId) {
+                    $stmtDept = $mysqli->prepare('SELECT id FROM departments WHERE id = ? AND empresa_id = ? LIMIT 1');
+                    if ($stmtDept) {
+                        $stmtDept->bind_param('ii', $deptId, $eid);
+                        $stmtDept->execute();
+                        $okDept = (bool)$stmtDept->get_result()->fetch_assoc();
+                        if (!$okDept) {
+                            $deptId = null;
+                        }
+                    }
+                }
+
+                $sql = "UPDATE help_topics SET name = ?, description = ?, dept_id = ?, is_active = ?, is_public = ? WHERE id = ?";
+                if ($helpTopicsHasEmpresaId) {
+                    $sql .= ' AND empresa_id = ?';
+                }
+                $stmt = $mysqli->prepare($sql);
+                if ($helpTopicsHasEmpresaId) {
+                    $stmt->bind_param('ssiiiii', $name, $description, $deptId, $isActive, $isPublic, $topicId, $eid);
+                } else {
+                    $stmt->bind_param('ssiiii', $name, $description, $deptId, $isActive, $isPublic, $topicId);
+                }
+                if ($stmt->execute()) {
+                    $msg = 'Tema de ayuda actualizado exitosamente';
+                } else {
+                    $error = 'Error al actualizar el tema de ayuda';
+                }
+            }
+            break;
+
+        case 'mass_process':
+            $ids = $_POST['ids'] ?? [];
+            $massAction = $_POST['a'] ?? '';
+
+            if (empty($ids) || !is_array($ids)) {
+                $error = 'Debe seleccionar al menos un tema';
+            } else {
+                $ids = array_map('intval', $ids);
+                $idsCount = count($ids);
+                $placeholders = str_repeat('?,', count($ids) - 1) . '?';
+                $types = str_repeat('i', count($ids));
+
+                global $mysqli;
+                switch ($massAction) {
+                    case 'enable':
+                        $sql = "UPDATE help_topics SET is_active = 1 WHERE id IN ($placeholders)";
+                        $typesBind = $types;
+                        $idsBind = $ids;
+                        if ($helpTopicsHasEmpresaId) {
+                            $sql .= ' AND empresa_id = ?';
+                            $typesBind .= 'i';
+                            $idsBind[] = (int)$eid;
+                        }
+                        $stmt = $mysqli->prepare($sql);
+                        $stmt->bind_param($typesBind, ...$idsBind);
+                        if ($stmt->execute()) {
+                            $msg = $idsCount . ' temas habilitados exitosamente';
+                        } else {
+                            $error = 'Error al habilitar temas';
+                        }
+                        break;
+
+                    case 'disable':
+                        $sql = "UPDATE help_topics SET is_active = 0 WHERE id IN ($placeholders)";
+                        $typesBind = $types;
+                        $idsBind = $ids;
+                        if ($helpTopicsHasEmpresaId) {
+                            $sql .= ' AND empresa_id = ?';
+                            $typesBind .= 'i';
+                            $idsBind[] = (int)$eid;
+                        }
+                        $stmt = $mysqli->prepare($sql);
+                        $stmt->bind_param($typesBind, ...$idsBind);
+                        if ($stmt->execute()) {
+                            $msg = $idsCount . ' temas deshabilitados exitosamente';
+                        } else {
+                            $error = 'Error al deshabilitar temas';
+                        }
+                        break;
+
+                    case 'delete':
+                        // Verificar que no se eliminen todos los temas activos
+                        $activeCount = 0;
+                        $countSql = "SELECT COUNT(*) as count FROM help_topics WHERE is_active = 1";
+                        if ($helpTopicsHasEmpresaId) {
+                            $countSql .= ' AND empresa_id = ' . (int)$eid;
+                        }
+                        $countResult = $mysqli->query($countSql);
+                        if ($countResult) {
+                            $activeCount = (int)$countResult->fetch_assoc()['count'];
+                        }
+
+                        $selectedActiveCount = 0;
+                        $selectedActiveSql = "SELECT COUNT(*) as count FROM help_topics WHERE id IN ($placeholders) AND is_active = 1";
+                        $typesSel = $types;
+                        $idsSel = $ids;
+                        if ($helpTopicsHasEmpresaId) {
+                            $selectedActiveSql .= ' AND empresa_id = ?';
+                            $typesSel .= 'i';
+                            $idsSel[] = (int)$eid;
+                        }
+                        $selectedResult = $mysqli->prepare($selectedActiveSql);
+                        $selectedResult->bind_param($typesSel, ...$idsSel);
+                        $selectedResult->execute();
+                        if ($selectedResult) {
+                            $selectedActiveCount = (int)$selectedResult->get_result()->fetch_assoc()['count'];
+                        }
+
+                        if ($selectedActiveCount >= $activeCount) {
+                            $error = 'Debe mantener al menos un tema activo';
+                        } else {
+                            $sql = "DELETE FROM help_topics WHERE id IN ($placeholders)";
+                            $typesDel = $types;
+                            $idsDel = $ids;
+                            if ($helpTopicsHasEmpresaId) {
+                                $sql .= ' AND empresa_id = ?';
+                                $typesDel .= 'i';
+                                $idsDel[] = (int)$eid;
+                            }
+                            $stmt = $mysqli->prepare($sql);
+                            $stmt->bind_param($typesDel, ...$idsDel);
+                            if ($stmt->execute()) {
+                                $msg = $idsCount . ' temas eliminados exitosamente';
+                            } else {
+                                $error = 'Error al eliminar temas';
+                            }
+                        }
+                        break;
+
+                    default:
+                        $error = 'Acción no reconocida';
+                }
+            }
+            break;
+    }
+    // Al terminar el POST, guardar mensaje en sesión y redirigir (PRG)
+    if (!headers_sent()) {
+        if (!empty($msg)) {
+            $_SESSION['flash_msg'] = $msg;
+        }
+        if (!empty($error)) {
+            $_SESSION['flash_error'] = $error;
+        }
+        header('Location: helptopics.php');
+        exit;
+    }
+}
+
+// Obtener temas de ayuda
+global $mysqli;
+$sql = "SELECT ht.*, d.name as dept_name 
+          FROM help_topics ht 
+          LEFT JOIN departments d ON ht.dept_id = d.id";
+if ($departmentsHasEmpresaId) {
+    $sql .= ' AND d.empresa_id = ' . (int)$eid;
+}
+if ($helpTopicsHasEmpresaId) {
+    $sql .= ' WHERE ht.empresa_id = ' . (int)$eid;
+}
+$sql .= ' ORDER BY ht.is_active DESC, ht.name ASC';
+$result = $mysqli->query($sql);
+$topics = [];
+if ($result) {
+    while ($row = $result->fetch_assoc()) {
+        $topics[] = $row;
+    }
+}
+
+// Obtener departamentos
+$deptSql = 'SELECT * FROM departments';
+if ($departmentsHasEmpresaId) {
+    $deptSql .= ' WHERE empresa_id = ' . (int)$eid;
+}
+$deptSql .= ' ORDER BY name';
+$deptResult = $mysqli->query($deptSql);
+$departments = [];
+if ($deptResult) {
+    while ($row = $deptResult->fetch_assoc()) {
+        $departments[] = $row;
+    }
+}
+
+// Editar tema específico
+$editingTopic = null;
+if (isset($_GET['id'])) {
+    $topicId = (int)$_GET['id'];
+    $sqlEdit = 'SELECT * FROM help_topics WHERE id = ?';
+    if ($helpTopicsHasEmpresaId) {
+        $sqlEdit .= ' AND empresa_id = ?';
+    }
+    $stmt = $mysqli->prepare($sqlEdit);
+    if ($helpTopicsHasEmpresaId) {
+        $stmt->bind_param('ii', $topicId, $eid);
+    } else {
+        $stmt->bind_param('i', $topicId);
+    }
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $editingTopic = $result ? $result->fetch_assoc() : null;
+}
+
+// Capturar contenido HTML
+ob_start();
+?>
+
+<!-- Hero Section con estilo similar a otras subopciones -->
+<div class="settings-hero">
+    <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+        <div class="d-flex align-items-center gap-3">
+            <span class="settings-hero-icon"><i class="bi bi-question-circle"></i></span>
+            <div>
+                <h1>Temas de Ayuda</h1>
+                <p>Administrar categorías y temas de soporte del sistema</p>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-success"><?php echo count(array_filter($topics, fn($t) => $t['is_active'])); ?> Activos</span>
+            <span class="badge bg-secondary"><?php echo count(array_filter($topics, fn($t) => !$t['is_active'])); ?> Inactivos</span>
+            <span class="badge bg-info"><?php echo count($topics); ?> Total</span>
+        </div>
+    </div>
+</div>
+
+<!-- Mensajes de éxito/error -->
+<?php if ($error): ?>
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i><?php echo html($error); ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+<?php endif; ?>
+
+<?php if ($msg): ?>
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle me-2"></i><?php echo html($msg); ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+<?php endif; ?>
+
+<!-- Sección principal -->
+<div class="row">
+    <!-- Lista de temas -->
+    <div class="col-12">
+        <div class="card settings-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong><i class="bi bi-list-ul"></i> Lista de Temas de Ayuda</strong>
+                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#topicModal">
+                    <i class="bi bi-plus-circle"></i> Nuevo Tema
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <?php if (count($topics) > 0): ?>
+                <!-- Formulario de acciones masivas -->
+                <form method="post" action="helptopics.php" id="massActionForm">
+                    <input type="hidden" name="do" value="mass_process">
+                    <?php csrfField(); ?>
+                    
+                    <!-- Tabla de temas -->
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="30">
+                                        <input type="checkbox" id="selectAll" class="form-check-input">
+                                    </th>
+                                    <th>Nombre del Tema</th>
+                                    <th>Departamento</th>
+                                    <th>Estado</th>
+                                    <th width="120">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($topics as $topic): ?>
+                                <tr>
+                                    <!-- VISTA MÓVIL (Tarjeta Premium) -->
+                                    <td class="d-md-none p-0">
+                                        <div style="padding: 16px; background: #ffffff; position: relative;">
+                                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                                <div class="d-flex align-items-center gap-3">
+                                                    <input type="checkbox" name="ids[]" value="<?php echo $topic['id']; ?>" class="form-check-input topic-checkbox m-0 shadow-sm" style="width: 1.25rem; height: 1.25rem;">
+                                                    <?php if ($topic['is_active']): ?>
+                                                    <span style="background: #f0fdf4; color: #16a34a; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 800; border: 1px solid #bbf7d0;"><i class="bi bi-check-circle-fill me-1"></i>Activo</span>
+                                                    <?php else: ?>
+                                                    <span style="background: #f1f5f9; color: #64748b; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 800; border: 1px solid #e2e8f0;"><i class="bi bi-pause-circle-fill me-1"></i>Inactivo</span>
+                                                    <?php endif; ?>
+                                                    <?php if (!isset($topic['is_public']) || $topic['is_public']): ?>
+                                                    <span class="badge badge-public rounded-pill" style="padding: 4px 10px; font-size: 0.7rem; font-weight: 800;"><i class="bi bi-globe me-1"></i>Público</span>
+                                                    <?php else: ?>
+                                                    <span class="badge badge-private rounded-pill" style="padding: 4px 10px; font-size: 0.7rem; font-weight: 800;"><i class="bi bi-lock-fill me-1"></i>Privado</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="dropdown">
+                                                    <button type="button" class="btn btn-sm btn-light border-0" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #f8fafc;">
+                                                        <i class="bi bi-three-dots-vertical text-secondary"></i>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border-radius: 12px; border: 1px solid #e2e8f0; border-top-right-radius: 0;">
+                                                        <li>
+                                                            <a class="dropdown-item py-2 fw-semibold" href="helptopics.php?id=<?php echo $topic['id']; ?>">
+                                                                <i class="bi bi-pencil me-2 text-primary"></i> Editar Tema
+                                                            </a>
+                                                        </li>
+                                                        <?php if ($topic['is_active']): ?>
+                                                        <li>
+                                                            <a class="dropdown-item py-2 fw-semibold" href="#" onclick="massAction('disable', [<?php echo $topic['id']; ?>])">
+                                                                <i class="bi bi-pause-circle me-2 text-warning"></i> Deshabilitar
+                                                            </a>
+                                                        </li>
+                                                        <?php else: ?>
+                                                        <li>
+                                                            <a class="dropdown-item py-2 fw-semibold" href="#" onclick="massAction('enable', [<?php echo $topic['id']; ?>])">
+                                                                <i class="bi bi-play-circle me-2 text-success"></i> Habilitar
+                                                            </a>
+                                                        </li>
+                                                        <?php endif; ?>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li>
+                                                            <a class="dropdown-item py-2 text-danger fw-bold js-delete-topic" href="javascript:void(0)" data-id="<?php echo $topic['id']; ?>" data-name="<?php echo htmlspecialchars($topic['name']); ?>">
+                                                                <i class="bi bi-trash me-2"></i> Eliminar
+                                                            </a>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+
+                                            <div style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; line-height: 1.3;">
+                                                <?php echo html($topic['name']); ?>
+                                            </div>
+                                            
+                                            <?php if ($topic['description']): ?>
+                                            <div style="font-size: 0.85rem; color: #475569; margin-bottom: 12px; line-height: 1.4;">
+                                                <?php echo html(substr($topic['description'], 0, 100)) . (strlen($topic['description']) > 100 ? '...' : ''); ?>
+                                            </div>
+                                            <?php endif; ?>
+
+                                            <div class="d-flex align-items-center mt-2 pt-3" style="border-top: 1px dashed #e2e8f0;">
+                                                <div style="font-size: 0.75rem; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 8px;">
+                                                    Dpto:
+                                                </div>
+                                                <?php if ($topic['dept_name']): ?>
+                                                <span style="background: rgba(37,99,235,0.08); color: #2563eb; padding: 4px 10px; border-radius: 8px; font-weight: 800; font-size: 0.75rem;">
+                                                    <i class="bi bi-building me-1"></i><?php echo html($topic['dept_name']); ?>
+                                                </span>
+                                                <?php else: ?>
+                                                <span style="background: #f1f5f9; color: #64748b; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 0.75rem;">
+                                                    Sin asignar
+                                                </span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- VISTA ESCRITORIO -->
+                                    <td class="d-none d-md-table-cell">
+                                        <input type="checkbox" name="ids[]" value="<?php echo $topic['id']; ?>" class="form-check-input topic-checkbox">
+                                    </td>
+                                    <td class="d-none d-md-table-cell">
+                                        <div class="fw-semibold"><?php echo html($topic['name']); ?></div>
+                                        <?php if ($topic['description']): ?>
+                                        <div class="text-muted small"><?php echo html(substr($topic['description'], 0, 80)) . '...'; ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="d-none d-md-table-cell">
+                                        <?php if ($topic['dept_name']): ?>
+                                        <span class="badge bg-light text-dark"><?php echo html($topic['dept_name']); ?></span>
+                                        <?php else: ?>
+                                        <span class="text-muted">Sin asignar</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="d-none d-md-table-cell">
+                                        <?php if ($topic['is_active']): ?>
+                                        <span class="badge bg-success mb-1">Activo</span>
+                                        <?php else: ?>
+                                        <span class="badge bg-secondary mb-1">Inactivo</span>
+                                        <?php endif; ?>
+                                        <br>
+                                        <?php if (!isset($topic['is_public']) || $topic['is_public']): ?>
+                                        <span class="badge badge-public"><i class="bi bi-globe me-1"></i>Público</span>
+                                        <?php else: ?>
+                                        <span class="badge badge-private"><i class="bi bi-lock-fill me-1"></i>Privado</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="d-none d-md-table-cell">
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="helptopics.php?id=<?php echo $topic['id']; ?>" 
+                                               class="btn btn-outline-primary" title="Editar">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                            <div class="btn-group" role="group">
+                                                <button type="button" class="btn btn-outline-secondary dropdown-toggle" 
+                                                        data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <i class="bi bi-three-dots"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-end">
+                                                    <?php if ($topic['is_active']): ?>
+                                                    <li>
+                                                        <a class="dropdown-item" href="#" onclick="massAction('disable', [<?php echo $topic['id']; ?>])">
+                                                            <i class="bi bi-pause-circle text-warning"></i> Deshabilitar
+                                                        </a>
+                                                    </li>
+                                                    <?php else: ?>
+                                                    <li>
+                                                        <a class="dropdown-item" href="#" onclick="massAction('enable', [<?php echo $topic['id']; ?>])">
+                                                            <i class="bi bi-play-circle text-success"></i> Habilitar
+                                                        </a>
+                                                    </li>
+                                                    <?php endif; ?>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <a class="dropdown-item text-danger js-delete-topic" href="javascript:void(0)" data-id="<?php echo $topic['id']; ?>" data-name="<?php echo htmlspecialchars($topic['name']); ?>">
+                                                            <i class="bi bi-trash"></i> Eliminar
+                                                        </a>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Acciones masivas -->
+                    <div class="border-top p-3 bg-light">
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <div class="btn-group" role="group">
+                                    <button type="submit" name="a" value="enable" class="btn btn-success btn-sm">
+                                        <i class="bi bi-check-circle"></i> Habilitar
+                                    </button>
+                                    <button type="submit" name="a" value="disable" class="btn btn-warning btn-sm">
+                                        <i class="bi bi-pause-circle"></i> Deshabilitar
+                                    </button>
+                                    <button type="button" id="openDeleteTopicsModalBtn" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteTopicsModal">
+                                        <i class="bi bi-trash"></i> Eliminar
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <small class="text-muted">
+                                    Seleccionados: <span id="selectedCount" class="fw-bold">0</span> de <?php echo count($topics); ?>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                <?php else: ?>
+                <!-- Estado vacío -->
+                <div class="text-center py-5">
+                    <div class="mb-3">
+                        <i class="bi bi-inbox display-1 text-muted"></i>
+                    </div>
+                    <h5 class="text-muted">No hay temas de ayuda configurados</h5>
+                    <p class="text-muted">Cree su primer tema de ayuda para comenzar a organizar el soporte</p>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal">
+                        <i class="bi bi-plus-circle"></i> Crear Primer Tema
+                    </button>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Reemplazado: el formulario de edición inline ahora es un modal que se abre si ?id=... -->
+</div>
+
+<!-- Modal para crear nuevo tema -->
+<div class="modal fade" id="topicModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="post" action="helptopics.php">
+                <input type="hidden" name="do" value="create">
+                <?php csrfField(); ?>
+                
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-circle"></i> Nuevo Tema de Ayuda
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Nombre del Tema <span class="text-danger">*</span></label>
+                                <input type="text" name="topic" class="form-control" required
+                                       placeholder="Ej: Problemas técnicos">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Departamento</label>
+                                <select name="dept_id" class="form-select">
+                                    <option value="">Seleccionar departamento</option>
+                                    <?php foreach ($departments as $dept): ?>
+                                    <option value="<?php echo $dept['id']; ?>">
+                                        <?php echo html($dept['name']); ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descripción</label>
+                        <textarea name="description" class="form-control" rows="3"
+                                  placeholder="Descripción detallada del tema de ayuda"></textarea>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" name="isactive" id="modalIsactive" checked>
+                                    <label class="form-check-label" for="modalIsactive">
+                                        Tema Activo
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" name="ispublic" id="modalIspublic" checked>
+                                    <label class="form-check-label" for="modalIspublic">
+                                        Tema Público
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Crear Tema
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<?php if ($editingTopic): ?>
+<!-- Modal para editar tema (se abre si ?id=...) -->
+<div class="modal fade" id="editTopicModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="post" action="helptopics.php">
+                <input type="hidden" name="do" value="update">
+                <input type="hidden" name="id" value="<?php echo (int)$editingTopic['id']; ?>">
+                <?php csrfField(); ?>
+                
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil"></i> Editar Tema de Ayuda
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Nombre del Tema <span class="text-danger">*</span></label>
+                                <input type="text" name="topic" class="form-control" required
+                                       value="<?php echo html($editingTopic['name']); ?>">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Departamento</label>
+                                <select name="dept_id" class="form-select">
+                                    <option value="">Seleccionar departamento</option>
+                                    <?php foreach ($departments as $dept): ?>
+                                    <option value="<?php echo $dept['id']; ?>" <?php echo ($editingTopic['dept_id'] == $dept['id']) ? 'selected' : ''; ?>>
+                                        <?php echo html($dept['name']); ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Descripción</label>
+                        <textarea name="description" class="form-control" rows="3"><?php echo html($editingTopic['description']); ?></textarea>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" name="isactive" id="editIsactive" <?php echo $editingTopic['is_active'] ? 'checked' : ''; ?> >
+                                    <label class="form-check-label" for="editIsactive">Tema Activo</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" name="ispublic" id="editIspublic" <?php echo (!isset($editingTopic['is_public']) || $editingTopic['is_public']) ? 'checked' : ''; ?> >
+                                    <label class="form-check-label" for="editIspublic">Tema Público</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-circle"></i> Actualizar Tema
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>window.HELP_TOPICS_AUTO_OPEN_EDIT_MODAL = true;</script>
+<?php endif; ?>
+
+<div class="modal fade" id="deleteTopicsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteTopicsModalTitle">
+                    <i class="bi bi-exclamation-triangle text-danger"></i> Confirmar eliminación
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="deleteTopicsModalBody">
+                <p class="mb-0">¿Está seguro de que desea eliminar los temas seleccionados?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteTopicsBtn">
+                    <i class="bi bi-trash"></i> Eliminar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="js/helptopics_page.js?v=<?php echo (int)@filemtime(__DIR__ . '/js/helptopics_page.js'); ?>"></script>
+
+<style>
+/* Responsive Table -> Cards for Mobile */
+@media (max-width: 768px) {
+    .settings-card { background: transparent !important; box-shadow: none !important; }
+    .settings-card .card-header { border-radius: 12px; margin-bottom: 12px; }
+    .settings-card .table-responsive { border: none !important; overflow: visible !important; }
+    .settings-card .table { background: transparent !important; }
+    .settings-card .table thead { display: none !important; }
+    .settings-card .table tbody tr {
+        display: block !important;
+        margin-bottom: 1rem !important;
+        background: #fff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
+        overflow: hidden !important;
+    }
+    .settings-card .table tbody td.d-md-none {
+        display: block !important;
+        width: 100% !important;
+        padding: 0 !important;
+        border: none !important;
+    }
+    .settings-card .table tbody td.d-none {
+        display: none !important;
+    }
+    .border-top.p-3.bg-light { border-radius: 12px; margin-top: 1rem; }
+}
+</style>
+
+<?php
+$content = ob_get_clean();
+require_once 'layout_admin.php';
+?>

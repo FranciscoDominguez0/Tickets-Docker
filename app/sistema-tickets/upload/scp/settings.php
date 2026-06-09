@@ -1,0 +1,50 @@
+<?php
+require_once '../../config.php';
+require_once '../../includes/helpers.php';
+require_once '../../includes/Auth.php';
+
+if (!isset($_SESSION['staff_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
+requireLogin('agente');
+requireRolePermission('admin.access');
+$staff = getCurrentUser();
+$currentRoute = 'settings';
+
+$requestedTarget = (string)($_GET['t'] ?? 'pages');
+if ($requestedTarget === 'system' && (string)($_SESSION['staff_role'] ?? '') !== 'superadmin') {
+    header('Location: settings.php?t=pages');
+    exit;
+}
+
+$allowedTargets = ['pages','tickets','tasks','agents','users','billing'];
+$target = $requestedTarget;
+if (!in_array($target, $allowedTargets, true)) {
+    $target = 'pages';
+}
+
+$msg = '';
+$error = '';
+
+require_once __DIR__ . '/inc/settings_helpers.inc.php';
+
+if ($target === 'pages') {
+    require __DIR__ . '/inc/settings_pages.inc.php';
+} elseif ($target === 'tickets') {
+    require __DIR__ . '/inc/settings_tickets.inc.php';
+} elseif ($target === 'tasks') {
+    require __DIR__ . '/inc/settings_tasks.inc.php';
+} elseif ($target === 'agents') {
+    require __DIR__ . '/inc/settings_agents.inc.php';
+} elseif ($target === 'users') {
+    require __DIR__ . '/inc/settings_users.inc.php';
+} elseif ($target === 'billing') {
+    require __DIR__ . '/inc/settings_billing.inc.php';
+} else {
+    $content = '<div class="page-header"><h1>Configuración</h1><p>Sección en construcción.</p></div>';
+}
+
+require_once 'layout_admin.php';
+exit;

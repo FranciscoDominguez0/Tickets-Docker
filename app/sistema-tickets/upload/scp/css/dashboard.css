@@ -1,0 +1,516 @@
+/* Dashboard Premium Mobile Styles */
+@media (max-width: 768px) {
+    /* Formulario de Filtros más amigable (Cards) */
+    form[action="dashboard.php"] .d-flex {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 15px !important;
+    }
+    
+    form[action="dashboard.php"] label {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        margin: 0 !important;
+    }
+    
+    form[action="dashboard.php"] input,
+    form[action="dashboard.php"] select,
+    form[action="dashboard.php"] button {
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-top: 5px;
+        height: 44px; /* Touchable area */
+    }
+
+    /* Gráfica redimensionada */
+    #chart-container {
+        height: 220px !important; /* Más compacta en móvil */
+    }
+    canvas#ticketsActivityChart {
+        width: 100% !important;
+    }
+
+    /* Tabs elegantes */
+    #statsTabs {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        border-bottom: 2px solid #e5e7eb;
+        padding-bottom: 2px;
+        -webkit-overflow-scrolling: touch;
+        gap: 10px;
+    }
+    #statsTabs .nav-item {
+        flex: 0 0 auto;
+    }
+    #statsTabs .nav-link {
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: #64748b;
+        font-weight: 600;
+        padding: 10px 15px;
+        background: transparent !important;
+    }
+    #statsTabs .nav-link.active {
+        color: #ef4444;
+        border-bottom-color: #ef4444;
+    }
+
+    /* Transformación de Tablas a Tarjetas (Cards Premium) */
+    .tab-content .table-responsive {
+        border: none !important;
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+        overflow: hidden !important; 
+    }
+    
+    .tab-content table {
+        border: none;
+        background: transparent;
+        display: block;
+        width: 100%;
+    }
+    
+    .tab-content thead {
+        display: none !important; /* Ocultar cabeceras originales */
+    }
+
+    .tab-content tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .tab-content tbody tr {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: auto;
+        gap: 12px;
+        background: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        border: 1px solid #e5e7eb;
+        padding: 20px;
+        position: relative;
+    }
+
+    /* Título principal de la tarjeta (Departamento, Tema, Agente) ocupa ambas columnas */
+    .tab-content tbody tr th {
+        grid-column: span 2;
+        display: block;
+        font-size: 1.25rem;
+        color: #1e293b;
+        font-weight: 800;
+        border-bottom: 2px solid #f8fafc;
+        margin-bottom: 8px;
+        padding-bottom: 12px;
+        text-align: center !important;
+        border-top: none;
+        border-left: none;
+        border-right: none;
+    }
+
+    /* Celdas de datos como bloques KPI */
+    .tab-content tbody tr td {
+        display: flex;
+        flex-direction: column; /* Valor arriba, etiqueta abajo */
+        justify-content: center;
+        align-items: center;
+        padding: 16px 10px;
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #f1f5f9;
+        font-size: 1.5rem; /* Número enorme */
+        line-height: 1;
+        transition: transform 0.2s;
+    }
+
+    .tab-content tbody tr td:last-child {
+        border-bottom: 1px solid #f1f5f9; /* Mantener formato base uniforme */
+    }
+
+    /* Reset order in flex so before (label) goes below the content (number) */
+    .tab-content tbody tr td {
+        display: flex;
+        flex-direction: column-reverse; 
+    }
+
+    /* Inyectar las etiquetas (labels) de cada celda usando pseudo-elementos paralelos a la estructura de las columnas */
+    .tab-content tbody tr td::before {
+        font-weight: 700;
+        color: #64748b;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 8px;
+        text-align: center;
+    }
+
+    /* Identificar las columnas por su orden secuencial en cada TR (las 8 restantes después del TH) */
+    .tab-content tbody tr td:nth-child(2)::before { content: "Abierto"; }
+    .tab-content tbody tr td:nth-child(3)::before { content: "Asignado"; }
+    .tab-content tbody tr td:nth-child(4)::before { content: "Atrasado"; }
+    .tab-content tbody tr td:nth-child(5)::before { content: "Cerrado"; }
+    .tab-content tbody tr td:nth-child(6)::before { content: "Reabierto"; }
+    .tab-content tbody tr td:nth-child(7)::before { content: "Borrado"; }
+    .tab-content tbody tr td:nth-child(8)::before { content: "T. Servicio"; }
+    .tab-content tbody tr td:nth-child(9)::before { content: "T. Respuesta"; }
+
+    /* Estilos numéricos y chips */
+    .tab-content tbody tr td {
+        color: #0f172a;
+        font-weight: 800;
+        font-family: 'Inter', system-ui, sans-serif;
+    }
+
+    /* Resaltar bloques KPI específicos */
+    .tab-content tbody tr td:nth-child(2) { color: #d97706; background: #fffbeb; border-color: #fef3c7; } /* Abierto */
+    .tab-content tbody tr td:nth-child(4) { color: #dc2626; background: #fef2f2; border-color: #fee2e2; } /* Atrasado */
+    .tab-content tbody tr td:nth-child(5) { color: #059669; background: #ecfdf5; border-color: #d1fae5; } /* Cerrado */
+
+    /* Filas "Sin datos" */
+    .tab-content tbody tr td[colspan="9"] {
+        grid-column: span 2;
+        display: block;
+        text-align: center;
+        padding: 30px 10px;
+        color: #9ca3af;
+        border: none;
+        background: transparent;
+        font-size: 1rem;
+    }
+    .tab-content tbody tr td[colspan="9"]::before {
+        display: none;
+    }
+
+    /* Botón de exportar a ancho completo */
+    [data-action="dashboard-export"] {
+        display: flex;
+        width: 100%;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        padding: 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        color: #ef4444;
+        text-decoration: none;
+        margin-top: 10px;
+    }
+}
+
+/* Base classes for Dashboard components */
+.dashboard-card-bg {
+    background: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.chart-container-box {
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    padding: 20px;
+    margin-bottom: 24px;
+    min-height: 350px;
+}
+
+/* Dark Mode Overrides */
+body.dark-mode {
+    color: #f1f5f9;
+}
+body.dark-mode .dashboard-card-bg {
+    background: #000;
+    border: 1px solid #222;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+body.dark-mode .chart-container-box {
+    background: #000;
+    border: 1px solid #222;
+}
+body.dark-mode .dashboard-period-form label strong {
+    color: #94a3b8;
+}
+body.dark-mode h2 {
+    color: #fff;
+}
+body.dark-mode .text-muted {
+    color: #94a3b8 !important;
+}
+
+/* Mobile Cards Dark Mode */
+@media (max-width: 768px) {
+    body.dark-mode .tab-content tbody tr {
+        background: #000;
+        border-color: #222;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    body.dark-mode .tab-content tbody tr th {
+        color: #fff;
+        border-bottom-color: #1a1a1a;
+    }
+    body.dark-mode .tab-content tbody tr td {
+        background: #0a0a0a;
+        border-color: #222;
+    }
+    body.dark-mode .tab-content tbody tr td::before {
+        color: #64748b;
+    }
+    
+    /* KPI Chips Dark Mode */
+    body.dark-mode .tab-content tbody tr td:nth-child(2) { color: #fbbf24; background: rgba(217, 119, 6, 0.1); border-color: rgba(217, 119, 6, 0.2); } /* Abierto */
+    body.dark-mode .tab-content tbody tr td:nth-child(4) { color: #f87171; background: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.2); } /* Atrasado */
+    body.dark-mode .tab-content tbody tr td:nth-child(5) { color: #34d399; background: rgba(5, 150, 105, 0.1); border-color: rgba(5, 150, 105, 0.2); } /* Cerrado */
+
+    body.dark-mode [data-action="dashboard-export"] {
+        background: #000;
+        border-color: #222;
+        color: #ef4444;
+    }
+}
+
+/* Tables Dark Mode Overrides */
+body.dark-mode .table-light {
+    background-color: #1a1a1a !important;
+    color: #94a3b8 !important;
+}
+body.dark-mode .table {
+    border-color: #222;
+    color: #cbd5e1;
+}
+body.dark-mode .table thead th {
+    background-color: #1a1a1a;
+    border-bottom-color: #333;
+    color: #94a3b8;
+}
+body.dark-mode .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+    color: #fff;
+}
+
+/* ── Premium Tables and Tabs Styling (Desktop & Mobile) ── */
+#statsTabs {
+    border-bottom: 2px solid #e2e8f0;
+    gap: 8px;
+}
+body.dark-mode #statsTabs {
+    border-bottom-color: #222;
+}
+#statsTabs .nav-link {
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    color: #64748b !important;
+    font-weight: 700 !important;
+    font-size: 0.9rem !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s !important;
+    background: transparent !important;
+    display: inline-flex;
+    align-items: center;
+}
+#statsTabs .nav-link:hover {
+    color: #ef4444 !important;
+}
+#statsTabs .nav-link.active {
+    color: #ef4444 !important;
+    border-bottom-color: #ef4444 !important;
+}
+
+/* Premium Desktop Tables */
+.stats-premium-table {
+    border-collapse: separate !important;
+    border-spacing: 0 8px !important;
+    margin-top: 10px;
+    border: none !important;
+}
+.stats-premium-table thead th {
+    background: #f8fafc !important;
+    color: #64748b !important;
+    border: none !important;
+    font-size: 0.8rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    padding: 12px 16px !important;
+    text-align: center;
+}
+.stats-premium-table thead th:first-child {
+    text-align: left;
+}
+body.dark-mode .stats-premium-table thead th {
+    background: #111 !important;
+    color: #94a3b8 !important;
+}
+.stats-premium-table tbody tr {
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+    border-radius: 10px;
+    transition: all 0.2s;
+}
+body.dark-mode .stats-premium-table tbody tr {
+    background: #0c0c0c;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+}
+.stats-premium-table tbody tr:hover {
+    background: #fff !important;
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.06) !important;
+    transform: translateY(-1px);
+}
+body.dark-mode .stats-premium-table tbody tr:hover {
+    background: #111 !important;
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.15) !important;
+}
+.stats-premium-table tbody tr th {
+    font-weight: 700;
+    color: #1e293b !important;
+    font-size: 0.95rem;
+    border: none !important;
+    padding: 16px !important;
+    border-radius: 10px 0 0 10px;
+}
+body.dark-mode .stats-premium-table tbody tr th {
+    color: #fff !important;
+}
+.stats-premium-table tbody tr td {
+    border: none !important;
+    padding: 16px !important;
+    vertical-align: middle;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+}
+body.dark-mode .stats-premium-table tbody tr td {
+    color: #cbd5e1;
+}
+.stats-premium-table tbody tr td:last-child {
+    border-radius: 0 10px 10px 0;
+}
+
+/* Red bullets for items */
+.dept-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+    display: inline-block;
+    flex-shrink: 0;
+}
+.topic-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #3b82f6;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+/* Agent mini avatar */
+.agent-mini-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Stat badges styling */
+.badge-stat {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 26px;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    line-height: 1;
+}
+.badge-stat.stat-open {
+    background: #fffbeb;
+    color: #d97706;
+    border: 1px solid #fef3c7;
+}
+.badge-stat.stat-assigned {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #dbeafe;
+}
+.badge-stat.stat-overdue {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fee2e2;
+}
+.badge-stat.stat-closed {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #d1fae5;
+}
+.badge-stat.stat-reopened {
+    background: #faf5ff;
+    color: #7c3aed;
+    border: 1px solid #f3e8ff;
+}
+.badge-stat.stat-deleted {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+.badge-stat.stat-service,
+.badge-stat.stat-response {
+    background: #f8fafc;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+/* Dark mode badge overrides */
+body.dark-mode .badge-stat.stat-open {
+    background: rgba(217, 119, 6, 0.15);
+    color: #fbbf24;
+    border-color: rgba(217, 119, 6, 0.3);
+}
+body.dark-mode .badge-stat.stat-assigned {
+    background: rgba(37, 99, 235, 0.15);
+    color: #60a5fa;
+    border-color: rgba(37, 99, 235, 0.3);
+}
+body.dark-mode .badge-stat.stat-overdue {
+    background: rgba(220, 38, 38, 0.15);
+    color: #f87171;
+    border-color: rgba(220, 38, 38, 0.3);
+}
+body.dark-mode .badge-stat.stat-closed {
+    background: rgba(5, 150, 105, 0.15);
+    color: #34d399;
+    border-color: rgba(5, 150, 105, 0.3);
+}
+body.dark-mode .badge-stat.stat-reopened {
+    background: rgba(124, 58, 237, 0.15);
+    color: #c084fc;
+    border-color: rgba(124, 58, 237, 0.3);
+}
+body.dark-mode .badge-stat.stat-deleted {
+    background: rgba(100, 116, 139, 0.15);
+    color: #94a3b8;
+    border-color: rgba(100, 116, 139, 0.3);
+}
+body.dark-mode .badge-stat.stat-service,
+body.dark-mode .badge-stat.stat-response {
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+

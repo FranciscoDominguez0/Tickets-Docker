@@ -1,0 +1,853 @@
+<?php
+// Layout para panel administrador
+// Similar al layout de agentes pero con sidebar de administración
+
+$notifCount = 0;
+$notifItems = [];
+if (isset($mysqli) && $mysqli && isset($_SESSION['staff_id'])) {
+    $sid = (int) $_SESSION['staff_id'];
+
+    $stmtN = $mysqli->prepare('SELECT COUNT(*) c FROM notifications WHERE staff_id = ? AND is_read = 0');
+    if ($stmtN) {
+        $stmtN->bind_param('i', $sid);
+        if ($stmtN->execute()) {
+            $notifCount = (int) (($stmtN->get_result()->fetch_assoc()['c'] ?? 0));
+        }
+    }
+
+    $stmtL = $mysqli->prepare('SELECT id, message, type, related_id, created_at FROM notifications WHERE staff_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 8');
+    if ($stmtL) {
+        $stmtL->bind_param('i', $sid);
+        if ($stmtL->execute()) {
+            $res = $stmtL->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $notifItems[] = $row;
+            }
+        }
+    }
+}
+
+$sidebarCookieState = isset($_COOKIE['scp_sidebar_collapsed']) ? (string)$_COOKIE['scp_sidebar_collapsed'] : '';
+$sidebarDefaultCollapsed = ($sidebarCookieState === 'collapsed');
+
+$collapseSidebarMenu = false;
+$menuKey = 'admin_sidebar_menu_seen_' . (int)($_SESSION['staff_id'] ?? 0);
+if ((string)($_SESSION['sidebar_panel_mode'] ?? '') !== 'admin') {
+    unset($_SESSION[$menuKey]);
+    $_SESSION['sidebar_panel_mode'] = 'admin';
+}
+if (!isset($_SESSION[$menuKey])) {
+    $_SESSION[$menuKey] = 1;
+    $collapseSidebarMenu = true;
+}
+
+$allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
+    <title>Panel Administrador - <?php echo APP_NAME; ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="css/scp.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/scp.css'); ?>">
+    <link rel="stylesheet" href="css/dark.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/dark.css'); ?>">
+    <style>
+        .scp-custom-notif {
+            position: fixed;
+            top: 75px;
+            right: -450px;
+            width: 340px;
+            background: #1e293b;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px;
+            padding: 16px;
+            z-index: 3000;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            backdrop-filter: blur(10px);
+        }
+        .scp-custom-notif.active { right: 20px; }
+        .scp-custom-notif .n-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+        .scp-custom-notif .n-title { font-weight: 700; font-size: 0.9rem; color: #60a5fa; display: flex; align-items: center; gap: 8px; }
+        .scp-custom-notif .n-msg {
+            font-size: 1rem;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+        .scp-custom-notif .n-btn {
+            background: #3b82f6;
+            color: white !important;
+            text-decoration: none !important;
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+        .scp-custom-notif .n-btn:hover { background: #2563eb; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.success .n-title { color: #22c55e; }
+        .scp-custom-notif.success .n-btn { background: #22c55e; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.success .n-btn:hover { background: #16a34a; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.warning .n-title { color: #f59e0b; }
+        .scp-custom-notif.warning .n-btn { background: #f59e0b; color: #fff !important; text-decoration: none !important; }
+        .scp-custom-notif.warning .n-btn:hover { background: #d97706; color: #fff !important; text-decoration: none !important; }
+        .scp-custom-notif.ticket .n-title { color: #ef4444; }
+        .scp-custom-notif.ticket .n-btn { background: #ef4444; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.ticket .n-btn:hover { background: #dc2626; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.info .n-title { color: #3b82f6; }
+        .scp-custom-notif.info .n-btn { background: #3b82f6; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.info .n-btn:hover { background: #2563eb; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.proceso .n-title { color: #8b5cf6; }
+        .scp-custom-notif.proceso .n-btn { background: #8b5cf6; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif.proceso .n-btn:hover { background: #7c3aed; color: white !important; text-decoration: none !important; }
+        .scp-custom-notif .n-close { background: none; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 0 4px; }
+        
+        /* Fix para evitar que botones y links rojos cambien a azul en hover */
+        .dropdown-item.text-danger:hover, .dropdown-item.text-danger:focus {
+            background-color: #fee2e2 !important;
+            color: #dc2626 !important;
+        }
+        .dark-mode .dropdown-item.text-danger:hover, .dark-mode .dropdown-item.text-danger:focus {
+            background-color: rgba(220, 38, 38, 0.15) !important;
+            color: #ef4444 !important;
+        }
+        .btn-outline-danger:hover {
+            background-color: #dc2626 !important;
+            border-color: #dc2626 !important;
+            color: #ffffff !important;
+        }
+        .btn-link.text-danger:hover {
+            color: #b91c1c !important;
+        }
+    </style>
+</head>
+<?php
+// Leer preferencia de modo oscuro desde sesión
+$isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
+?>
+<body class="scp-panel<?php echo $sidebarDefaultCollapsed ? ' sidebar-collapsed' : ''; ?><?php echo $isDarkMode ? ' dark-mode' : ''; ?>" data-sidebar-default="<?php echo $sidebarDefaultCollapsed ? 'collapsed' : 'expanded'; ?>">
+    <!-- NAVBAR ADMINISTRADOR -->
+    <nav class="navbar navbar-dark scp-admin-navbar" style="position: fixed; top: 0; left: 0; width: 100%; z-index: 1001; height: 60px;">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn scp-menu-toggle" id="scpSidebarToggle" type="button" aria-label="Alternar menú lateral" aria-expanded="<?php echo $sidebarDefaultCollapsed ? 'false' : 'true'; ?>">
+                    <i class="bi bi-list"></i>
+                </button>
+                <span class="navbar-brand scp-brand-title">Sistema de Tickets</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="dropdown">
+                    <button class="btn position-relative scp-notif-btn scp-notif-toggle <?php echo $notifCount > 0 ? 'has-new' : ''; ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notificaciones">
+                        <i class="bi bi-bell"></i>
+                        <?php if ($notifCount > 0): ?>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                <?php echo (int) $notifCount; ?>
+                            </span>
+                        <?php endif; ?>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end scp-notif-menu">
+                        <li>
+                            <div class="scp-notif-head">
+                                <div class="scp-notif-title">Notificaciones</div>
+                                <div class="scp-notif-sub"><?php echo $notifCount > 0 ? ((int)$notifCount . ' nueva(s)') : 'Sin nuevas'; ?></div>
+                            </div>
+                        </li>
+                        <li class="scp-notif-items-scroll">
+                            <ul class="list-unstyled mb-0" id="scpNotifItemsContainer">
+                                <?php if (empty($notifItems)): ?>
+                                    <li id="scpNotifEmptyRow"><div class="scp-notif-empty">No tienes notificaciones nuevas.</div></li>
+                                <?php else: ?>
+                                    <?php foreach ($notifItems as $n): ?>
+                                        <?php
+                                        $t = (string)($n['type'] ?? 'general');
+                                        $msgText = strtolower((string)($n['message'] ?? ''));
+                                        $icon = 'bi-info-circle-fill';
+                                        $accent = 'general';
+                                        
+                                        if (strpos($msgText, 'cerrado') !== false || strpos($msgText, 'resuelto') !== false || strpos($msgText, 'completado') !== false) {
+                                            $icon = 'bi-check-circle-fill';
+                                            $accent = 'success';
+                                        } elseif (strpos($msgText, 'camino') !== false || strpos($msgText, 'proceso') !== false) {
+                                            $icon = 'bi-car-front-fill';
+                                            $accent = 'warning';
+                                        } elseif (strpos($msgText, 'creado') !== false || strpos($msgText, 'nuevo') !== false || strpos($msgText, 'asignado') !== false) {
+                                            $icon = 'bi-ticket-detailed-fill';
+                                            $accent = 'ticket';
+                                        } elseif (strpos($msgText, 'respondido') !== false || strpos($msgText, 'mensaje') !== false) {
+                                            $icon = 'bi-chat-dots-fill';
+                                            $accent = 'info';
+                                        } elseif ($t === 'ticket_assigned') {
+                                            $icon = 'bi-ticket-perforated';
+                                            $accent = 'ticket';
+                                        } elseif ($t === 'task_assigned') {
+                                            $icon = 'bi-check2-square';
+                                            $accent = 'task';
+                                        }
+                                        ?>
+                                        <li>
+                                            <a class="dropdown-item scp-notif-item" href="notification_read.php?id=<?php echo (int) $n['id']; ?>">
+                                                <div class="scp-notif-icon <?php echo html($accent); ?>">
+                                                    <i class="bi <?php echo html($icon); ?>"></i>
+                                                </div>
+                                                <div class="scp-notif-body">
+                                                    <div class="scp-notif-msg"><?php echo html((string)($n['message'] ?? 'Notificación')); ?></div>
+                                                    <div class="scp-notif-time"><?php echo html(formatDate($n['created_at'] ?? null)); ?></div>
+                                                </div>
+                                            </a>
+                                        </li>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </ul>
+                        </li>
+                        <li class="scp-notif-footer">
+                            <button type="button" class="scp-notif-btn-all" id="scpMarkAllRead" <?php echo empty($notifItems) ? 'disabled' : ''; ?>>
+                                <i class="bi bi-check-all"></i> Marcar todas como leídas
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
+                <a href="index.php" class="scp-admin-pill scp-admin-pill-lg d-none d-md-inline-flex">Volver a Agentes</a>
+                <div class="dropdown">
+                    <?php
+                    $staffName = (string)($staff['name'] ?? '');
+                    $parts = preg_split('/\s+/', trim($staffName));
+                    $i1 = strtoupper((string)($parts[0][0] ?? ''));
+                    $i2 = '';
+                    if (count($parts) > 1) {
+                        $i2 = strtoupper((string)($parts[1][0] ?? ''));
+                    } elseif (strlen($staffName) > 1) {
+                        $i2 = strtoupper(substr($staffName, 1, 1));
+                    }
+                    $initials = trim($i1 . $i2);
+                    if ($initials === '') {
+                        $initials = 'U';
+                    }
+                    $staffNameDisplay = trim($staffName);
+                    if ($staffNameDisplay === '') {
+                        $staffNameDisplay = $initials;
+                    }
+                    ?>
+                    <button class="dropdown-toggle scp-profile-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span class="scp-profile-avatar" aria-hidden="true"><?php echo html($initials); ?></span>
+                        <span class="scp-profile-name"><?php echo html($staffNameDisplay); ?></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end scp-profile-menu">
+                        <li class="d-md-none"><a class="dropdown-item scp-back-agents-link" href="index.php"><i class="bi bi-arrow-left"></i> Volver a Agentes</a></li>
+                        <li class="d-md-none"><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person"></i>Mi perfil</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="logout.php"><i class="bi bi-box-arrow-right"></i>Desconectar</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- LAYOUT ADMINISTRADOR -->
+    <div class="layout">
+        <!-- SIDEBAR ADMINISTRACIÓN -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <div class="sidebar-brand-logo">
+                    <?php $brandLogo = (string)getCompanyLogoUrl('publico/img/vigitec-logo.webp'); ?>
+                    <img src="<?php echo html($brandLogo); ?>" alt="Vigitec Panama" />
+                </div>
+                <span class="sidebar-brand-collapsed-mark" aria-hidden="true">//</span>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Panel Admin</div>
+                <ul class="sidebar-nav">
+                    <li class="sidebar-group">
+                        <?php $settingsTab = (string)($_GET['t'] ?? ''); $isSettingsRoute = ($currentRoute === 'settings'); ?>
+                        <?php $expandSettings = ($isSettingsRoute && $allowExpandedGroups); ?>
+                        <button type="button" class="sidebar-toggle <?php echo $expandSettings ? 'active expanded' : ''; ?>" data-subnav="settings-subnav" aria-controls="settings-subnav" aria-expanded="<?php echo $expandSettings ? 'true' : 'false'; ?>">
+                            <span class="icon"><i class="bi bi-gear"></i></span>
+                            Configuración
+                            <span class="arrow">
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 5L12 10L7 15" stroke="<?php echo $expandSettings ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                        </button>
+                        <ul id="settings-subnav" class="sidebar-subnav <?php echo $expandSettings ? 'open' : ''; ?>">
+                            <li>
+                                <a href="settings.php?t=pages" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'pages') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-building"></i></span>
+                                    Perfil de la empresa
+                                </a>
+                            </li>
+                            <li>
+                                <a href="settings.php?t=billing" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'billing') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-receipt"></i></span>
+                                    Facturación
+                                </a>
+                            </li>
+                            <li>
+                                <a href="settings.php?t=tickets" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'tickets') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-ticket-perforated"></i></span>
+                                    Solicitudes
+                                </a>
+                            </li>
+                            <li>
+                                <a href="settings.php?t=tasks#settings" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'tasks') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-check2-square"></i></span>
+                                    Tareas
+                                </a>
+                            </li>
+                            <li>
+                                <a href="settings.php?t=agents" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'agents') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-person-badge"></i></span>
+                                    Agentes
+                                </a>
+                            </li>
+                            <li>
+                                <a href="settings.php?t=users" class="sidebar-link <?php echo ($isSettingsRoute && $settingsTab === 'users') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-people"></i></span>
+                                    Usuarios
+                                </a>
+                            </li>
+                        </ul>
+                        <a href="logs.php" class="sidebar-link <?php echo ($currentRoute === 'logs') ? 'active' : ''; ?>">
+                            <span class="icon"><i class="bi bi-graph-up"></i></span>
+                            Panel de Control
+                        </a>
+                        <a href="notifications_admin.php" class="sidebar-link <?php echo ($currentRoute === 'notifications_admin') ? 'active' : ''; ?>">
+                            <span class="icon"><i class="bi bi-bell"></i></span>
+                            Notificaciones
+                        </a>
+                        <a href="helptopics.php" class="sidebar-link <?php echo ($currentRoute === 'helptopics') ? 'active' : ''; ?>">
+                            <span class="icon"><i class="bi bi-list-check"></i></span>
+                            Temas
+                        </a>
+                        <a href="deleted_tickets.php" class="sidebar-link <?php echo ($currentRoute === 'deleted_tickets') ? 'active' : ''; ?>">
+                            <span class="icon"><i class="bi bi-trash-fill"></i></span>
+                            Tickets Borrados
+                            <?php 
+                            $eid = empresaId();
+                            $resDelCount = $mysqli->query("SELECT COUNT(*) as total FROM ticket_deletion_requests WHERE empresa_id = $eid AND status = 'pending'");
+                            $pendingDelCount = $resDelCount ? $resDelCount->fetch_assoc()['total'] : 0;
+                            if ($pendingDelCount > 0): ?>
+                                <span class="badge bg-danger ms-auto" style="font-size: 0.7rem;"><?php echo $pendingDelCount; ?></span>
+                            <?php endif; ?>
+                        </a>
+                        <?php
+                        $emailTab = isset($emailTab) ? (string)$emailTab : '';
+                        $isEmailRoute = ($currentRoute === 'emails');
+                        $expandEmail = ($isEmailRoute && $allowExpandedGroups);
+                        ?>
+                        <button type="button" class="sidebar-toggle <?php echo $expandEmail ? 'active expanded' : ''; ?>" data-subnav="emails-subnav" aria-controls="emails-subnav" aria-expanded="<?php echo $expandEmail ? 'true' : 'false'; ?>">
+                            <span class="icon"><i class="bi bi-envelope"></i></span>
+                            Correos Electrónicos
+                            <span class="arrow">
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 5L12 10L7 15" stroke="<?php echo $expandEmail ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                        </button>
+                        <ul id="emails-subnav" class="sidebar-subnav <?php echo $expandEmail ? 'open' : ''; ?>">
+                            <li>
+                                <a href="emails.php" class="sidebar-link <?php echo ($isEmailRoute && $emailTab === 'emails') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-inbox"></i></span>
+                                    Correos
+                                </a>
+                            </li>
+
+                            <li>
+                                <a href="banlist.php" class="sidebar-link <?php echo ($isEmailRoute && $emailTab === 'banlist') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-slash-circle"></i></span>
+                                    Lista de prohibidos
+                                </a>
+                            </li>
+                            <li>
+                                <a href="emailtest.php" class="sidebar-link <?php echo ($isEmailRoute && $emailTab === 'test') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-activity"></i></span>
+                                    Diagnóstico
+                                </a>
+                            </li>
+                        </ul>
+                        <?php
+                        $isAgentsRoute = in_array($currentRoute, ['staff', 'roles', 'departments']);
+                        $expandAgents = ($isAgentsRoute && $allowExpandedGroups);
+                        ?>
+                        <button type="button" class="sidebar-toggle <?php echo $expandAgents ? 'active expanded' : ''; ?>" data-subnav="agents-subnav" aria-controls="agents-subnav" aria-expanded="<?php echo $expandAgents ? 'true' : 'false'; ?>">
+                            <span class="icon"><i class="bi bi-people"></i></span>
+                            Agentes
+                            <span class="arrow">
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 5L12 10L7 15" stroke="<?php echo $expandAgents ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                        </button>
+                        <ul id="agents-subnav" class="sidebar-subnav <?php echo $expandAgents ? 'open' : ''; ?>">
+                            <li>
+                                <a href="staff.php" class="sidebar-link <?php echo ($currentRoute === 'staff') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-person-badge"></i></span>
+                                    Agentes
+                                </a>
+                            </li>
+                            <li>
+                                <a href="roles.php" class="sidebar-link <?php echo ($currentRoute === 'roles') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-shield-lock"></i></span>
+                                    Roles
+                                </a>
+                            </li>
+                            <li>
+                                <a href="departments.php" class="sidebar-link <?php echo ($currentRoute === 'departments') ? 'active' : ''; ?>">
+                                    <span class="icon"><i class="bi bi-diagram-3"></i></span>
+                                    Departamentos
+                                </a>
+                            </li>
+                        </ul>
+
+                        <a href="logout.php" class="sidebar-link">
+                            <span class="icon"><i class="bi bi-box-arrow-right" style="color: #f87171 !important;"></i></span>
+                            Salir
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+        </aside>
+        <div id="scpSidebarFlyout" class="sidebar-flyout" aria-hidden="true"></div>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="main-shell">
+            <div class="container-main">
+                <?php if ((int)($_SESSION['read_only'] ?? 0) === 1): ?>
+                    <?php $roMsg = (string)($_SESSION['read_only_reason'] ?? 'Pago vencido. Comuníquese con Vigitec Panamá.'); ?>
+                    <div class="alert alert-warning" role="alert" data-alert-static="1">
+                        <i class="bi bi-exclamation-triangle me-2"></i><strong>Modo lectura:</strong> <?php echo html($roMsg); ?>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($_SESSION['flash_error'])): ?>
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle me-2"></i><?php echo html((string)$_SESSION['flash_error']); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    <?php unset($_SESSION['flash_error']); ?>
+                <?php endif; ?>
+
+                <?php if (!empty($_SESSION['flash_msg'])): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle me-2"></i><?php echo html((string)$_SESSION['flash_msg']); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    <?php unset($_SESSION['flash_msg']); ?>
+                <?php endif; ?>
+
+                <?php echo $content; ?>
+            </div>
+        </main>
+    </div>
+
+    <?php if (isset($currentRoute) && $currentRoute === 'staff'): ?>
+        <style>
+            #staff-loading-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(15, 23, 42, 0.55);
+                backdrop-filter: blur(2px);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                z-index: 2000;
+                padding: 20px;
+            }
+
+            #staff-loading-overlay .staff-loading-card {
+                width: 100%;
+                max-width: 360px;
+                background: #fff;
+                border-radius: 14px;
+                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+                padding: 18px 16px;
+                text-align: center;
+            }
+
+            #staff-loading-overlay .staff-spinner {
+                width: 42px;
+                height: 42px;
+                border-radius: 999px;
+                border: 4px solid #e2e8f0;
+                border-top-color: #0d6efd;
+                margin: 4px auto 10px;
+                animation: staffSpin 0.9s linear infinite;
+            }
+
+            #staff-loading-overlay .staff-loading-title {
+                font-weight: 700;
+                margin-bottom: 4px;
+            }
+
+            #staff-loading-overlay .staff-loading-sub {
+                color: #64748b;
+                font-size: 0.9rem;
+                margin: 0;
+            }
+
+            @keyframes staffSpin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        </style>
+
+        <div id="staff-loading-overlay" aria-hidden="true">
+            <div class="staff-loading-card">
+                <div class="staff-spinner" aria-hidden="true"></div>
+                <div class="staff-loading-title" id="staff-loading-title">Procesando...</div>
+                <p class="staff-loading-sub" id="staff-loading-sub">Por favor espera un momento</p>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <div id="customPopNotif" class="scp-custom-notif info">
+        <div class="n-header">
+            <span class="n-title"><i id="customPopIcon" class="bi bi-info-circle-fill"></i> <span id="customPopTitleText">Actualización</span></span>
+            <button class="n-close" onclick="document.getElementById('customPopNotif').classList.remove('active')">&times;</button>
+        </div>
+        <div id="customPopMsg" class="n-msg"></div>
+        <a id="customPopLink" href="#" class="n-btn">Ver solicitud</a>
+    </div>
+
+    <div class="text-muted scp-footer-brand" style="font-size: 0.85rem; padding: 14px 10px; text-align: center; width: 100%; display: block;">
+        &copy; VigitecPanama
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/scp.js"></script>
+    <script>
+        // Inicializar objeto de audio global para evadir políticas de Autoplay del navegador
+        window.scpNotificationAudio = new Audio('../../publico/audio/notification.mp3');
+        window.scpNotificationAudio.volume = 0.4;
+
+        // Desbloquear el audio en la primera interacción (click, keydown o touch)
+        (function() {
+            var unlock = function() {
+                if (window.scpNotificationAudio) {
+                    var originalVolume = window.scpNotificationAudio.volume;
+                    window.scpNotificationAudio.volume = 0;
+                    window.scpNotificationAudio.play().then(function() {
+                        window.scpNotificationAudio.pause();
+                        window.scpNotificationAudio.currentTime = 0;
+                        window.scpNotificationAudio.volume = originalVolume;
+                    }).catch(function(e) {
+                        window.scpNotificationAudio.volume = originalVolume;
+                        console.log('Audio unlock failed:', e);
+                    });
+                }
+                document.removeEventListener('click', unlock);
+                document.removeEventListener('keydown', unlock);
+                document.removeEventListener('touchstart', unlock);
+            };
+            document.addEventListener('click', unlock);
+            document.addEventListener('keydown', unlock);
+            document.addEventListener('touchstart', unlock);
+        })();
+
+        // Botón "Marcar todas como leídas" en notificaciones
+        (function(){
+            var btn = document.getElementById('scpMarkAllRead');
+            if (!btn) return;
+            
+            btn.addEventListener('click', function(ev){
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (btn.disabled) return;
+                
+                // Limpiar UI inmediatamente
+                var badge = document.querySelector('.scp-notif-btn .badge');
+                if (badge) badge.remove();
+                
+                // Cambiar badge del botón campana
+                var bellBtn = document.querySelector('.scp-notif-btn');
+                if (bellBtn) bellBtn.classList.remove('has-new');
+                
+                // Vaciar lista y mostrar mensaje vacío
+                var menu = btn.closest('.scp-notif-menu');
+                var items = menu ? menu.querySelectorAll('li:not(:first-child):not(.scp-notif-footer)') : [];
+                items.forEach(function(item){ item.remove(); });
+                
+                // Agregar mensaje vacío
+                var emptyLi = document.createElement('li');
+                emptyLi.innerHTML = '<div class="scp-notif-empty">No tienes notificaciones nuevas.</div>';
+                if (menu) {
+                    var footer = menu.querySelector('.scp-notif-footer');
+                    if (footer) {
+                        menu.insertBefore(emptyLi, footer);
+                    } else {
+                        menu.appendChild(emptyLi);
+                    }
+                }
+                
+                // Actualizar contador en header
+                var sub = menu ? menu.querySelector('.scp-notif-sub') : null;
+                if (sub) sub.textContent = 'Sin nuevas';
+                
+                // Desactivar botón
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-check-lg"></i> ¡Listo!';
+                
+                // Enviar petición en segundo plano (sin recargar)
+                var url = window.location.pathname.replace(/\/[^\/]*$/, '') + '/notifications_mark_all_read.php';
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                }).catch(function(){});
+            });
+        })();
+
+        window.addEventListener('DOMContentLoaded', function(){
+            var alerts = document.querySelectorAll('.alert.alert-dismissible.fade.show:not(.d-none)');
+            if (!alerts || !alerts.length) return;
+            alerts.forEach(function(el){
+                var isPermanent = el.hasAttribute('data-alert-static') || el.getAttribute('data-static') === '1';
+                var id = (el.getAttribute('id') || '');
+                if (id && /ClientError$/i.test(id)) return;
+                if (isPermanent) return;
+                window.setTimeout(function(){
+                    try {
+                        if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
+                            bootstrap.Alert.getOrCreateInstance(el).close();
+
+                        } else {
+                            el.classList.remove('show');
+                            window.setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); }, 250);
+                        }
+                    } catch (e) {}
+                }, 3500);
+            });
+        });
+    </script>
+    <?php if (isset($currentRoute) && $currentRoute === 'staff'): ?>
+    <script>
+        (function () {
+            var overlay = document.getElementById('staff-loading-overlay');
+            var titleEl = document.getElementById('staff-loading-title');
+            var subEl = document.getElementById('staff-loading-sub');
+            var isBusy = false;
+
+            function showOverlay(title, sub) {
+                if (!overlay) return;
+                if (titleEl) titleEl.textContent = title || 'Procesando...';
+                if (subEl) subEl.textContent = sub || 'Por favor espera un momento';
+                overlay.style.display = 'flex';
+                overlay.setAttribute('aria-hidden', 'false');
+            }
+
+            function hookForm(form, title, sub) {
+                if (!form) return;
+                form.addEventListener('submit', function () {
+                    if (isBusy) return false;
+                    isBusy = true;
+
+                    var submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.setAttribute('aria-disabled', 'true');
+                    }
+
+                    showOverlay(title, sub);
+                    return true;
+                });
+            }
+
+            document.querySelectorAll('form[action="staff.php"] input[name="do"][value="send_reset"]').forEach(function (input) {
+                hookForm(input.closest('form'), 'Enviando correo...', 'Se está enviando el reseteo de contraseña');
+            });
+
+            var createDo = document.querySelector('#agentCreateModal form[action="staff.php"] input[name="do"][value="create"]');
+            if (createDo) {
+                hookForm(createDo.closest('form'), 'Creando agente...', 'Guardando y enviando correo si aplica');
+            }
+        })();
+    </script>
+    <?php endif; ?>
+    <?php if (isset($currentRoute) && $currentRoute === 'logs'): ?>
+    <script src="js/logs.js"></script>
+    <?php endif; ?>
+
+    <?php
+    $maxLoadedId = 0;
+    if (isset($notifItems) && is_array($notifItems) && !empty($notifItems)) {
+        $maxLoadedId = max(array_column($notifItems, 'id'));
+    }
+    ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var lastNotifId = <?php echo (int)$maxLoadedId; ?>;
+            var pollInterval = 6000;
+            var popEl = document.getElementById('customPopNotif');
+
+            function updateBellBadge(count) {
+                var btn = document.querySelector('.scp-notif-btn');
+                var sub = document.querySelector('.scp-notif-sub');
+                if (!btn) return;
+                if (count > 0) {
+                    btn.classList.add('has-new');
+                    var badge = btn.querySelector('.badge');
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger';
+                        btn.appendChild(badge);
+                    }
+                    badge.textContent = count;
+                    if (sub) sub.textContent = count + ' nueva(s)';
+                } else {
+                    btn.classList.remove('has-new');
+                    var badge = btn.querySelector('.badge');
+                    if (badge) badge.remove();
+                    if (sub) sub.textContent = 'Sin nuevas';
+                }
+            }
+
+            function addNotificationToDropdown(n) {
+                var container = document.getElementById('scpNotifItemsContainer');
+                if (!container) return;
+
+                var li = document.createElement('li');
+                var msgText = (n.message || '').toLowerCase();
+                var icon = 'bi-info-circle-fill';
+                var accent = 'general';
+
+                if (msgText.includes('cerrado') || msgText.includes('resuelto') || msgText.includes('completado')) {
+                    icon = 'bi-check-circle-fill';
+                    accent = 'success';
+                } else if (msgText.includes('camino')) {
+                    icon = 'bi-car-front-fill';
+                    accent = 'warning';
+                } else if (msgText.includes('proceso')) {
+                    icon = 'bi-gear-fill';
+                    accent = 'proceso';
+                } else if (msgText.includes('creado') || msgText.includes('nuevo') || msgText.includes('asignado')) {
+                    icon = 'bi-ticket-detailed-fill';
+                    accent = 'ticket';
+                } else if (msgText.includes('respondido') || msgText.includes('mensaje')) {
+                    icon = 'bi-chat-dots-fill';
+                    accent = 'info';
+                } else if (n.type === 'ticket_assigned') {
+                    icon = 'bi-ticket-perforated';
+                    accent = 'ticket';
+                } else if (n.type === 'task_assigned') {
+                    icon = 'bi-check2-square';
+                    accent = 'task';
+                }
+
+                li.innerHTML = `
+                    <a class="dropdown-item scp-notif-item" href="notification_read.php?id=${n.id}">
+                        <div class="scp-notif-icon ${accent}"><i class="bi ${icon}"></i></div>
+                        <div class="scp-notif-body">
+                            <div class="scp-notif-msg">${n.message}</div>
+                            <div class="scp-notif-time">Justo ahora</div>
+                        </div>
+                    </a>
+                `;
+                container.prepend(li);
+                var empty = document.getElementById('scpNotifEmptyRow');
+                if (empty) empty.style.display = 'none';
+                var btnMark = document.getElementById('scpMarkAllRead');
+                if (btnMark) btnMark.disabled = false;
+            }
+
+            function showNotificationToast(n) {
+                if (!popEl) return;
+                var msgEl = document.getElementById('customPopMsg');
+                var linkEl = document.getElementById('customPopLink');
+                var iconEl = document.getElementById('customPopIcon');
+                var titleTextEl = document.getElementById('customPopTitleText');
+
+                var msgText = (n.message || '').toLowerCase();
+                var icon = 'bi-info-circle-fill';
+                var accent = 'info';
+                var title = 'Notificación';
+
+                if (msgText.includes('cerrado') || msgText.includes('resuelto') || msgText.includes('completado')) {
+                    icon = 'bi-check-circle-fill'; title = 'Completado'; accent = 'success';
+                } else if (msgText.includes('camino')) {
+                    icon = 'bi-car-front-fill'; title = 'En Camino'; accent = 'warning';
+                } else if (msgText.includes('proceso')) {
+                    icon = 'bi-gear-fill'; title = 'En Proceso'; accent = 'proceso';
+                } else if (msgText.includes('creado') || msgText.includes('nuevo') || msgText.includes('asignado')) {
+                    icon = 'bi-ticket-detailed-fill'; title = 'Nuevo Ticket'; accent = 'ticket';
+                } else if (msgText.includes('respondido') || msgText.includes('mensaje')) {
+                    icon = 'bi-chat-dots-fill'; title = 'Nuevo Mensaje'; accent = 'info';
+                }
+
+                if (msgEl) msgEl.textContent = n.message || 'Nueva notificación';
+                if (linkEl) linkEl.href = 'notification_read.php?id=' + n.id;
+                if (iconEl) iconEl.className = 'bi ' + icon;
+                if (titleTextEl) titleTextEl.textContent = title;
+
+                popEl.className = 'scp-custom-notif ' + accent + ' active';
+                window.setTimeout(function() { popEl.classList.remove('active'); }, 12000);
+
+                if ("Notification" in window && Notification.permission === "granted") {
+                    new Notification("Tickets - " + (n.message || "Nueva notificación"), {
+                        icon: '<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico'
+                    });
+                }
+
+            }
+
+            // Reproducir sonido UNA sola vez (se llama desde pollNotifications, no por cada notif)
+            function playNotificationSound() {
+                try {
+                    if (window.scpNotificationAudio) {
+                        // Detener cualquier reproducción en curso
+                        window.scpNotificationAudio.pause();
+                        window.scpNotificationAudio.currentTime = 0;
+                        window.scpNotificationAudio.play().catch(function(e){
+                            console.log('Audio play blocked or failed:', e);
+                        });
+                    }
+                } catch(e) {}
+            }
+
+            if ("Notification" in window && Notification.permission === "default") {
+                document.addEventListener('click', function() { Notification.requestPermission(); }, { once: true });
+            }
+
+            var _pollRunning = false;
+            function pollNotifications() {
+                if (_pollRunning) return;
+                _pollRunning = true;
+                var url = 'notifications_poll.php?last_id=' + lastNotifId + '&_t=' + Date.now();
+                fetch(url).then(r => r.json()).then(data => {
+                    if (data.ok) {
+                        if (data.notifications && data.notifications.length > 0) {
+                            var firstShown = false;
+                            data.notifications.forEach(function(n) {
+                                if (!firstShown) {
+                                    showNotificationToast(n);
+                                    firstShown = true;
+                                }
+                                addNotificationToDropdown(n);
+                                if (n.id > lastNotifId) lastNotifId = n.id;
+                            });
+                            // Reproducir sonido UNA sola vez por ciclo de polling
+                            playNotificationSound();
+                        }
+                        updateBellBadge(data.total_unread);
+                    }
+                }).catch(e => console.error('Poll error', e))
+                  .finally(function(){ _pollRunning = false; });
+            }
+
+            setInterval(pollNotifications, pollInterval);
+        });
+    </script>
+</body>
+</html>

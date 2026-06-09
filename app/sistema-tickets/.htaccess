@@ -1,0 +1,39 @@
+<IfModule mod_headers.c>
+    # 1. HSTS (Strict-Transport-Security)
+    # Obliga al navegador a usar SIEMPRE HTTPS. Solo activar si tu sitio tiene certificado SSL/TLS.
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+
+    # 2. X-Content-Type-Options
+    # Previene el "MIME sniffing", bloqueando que el navegador intente adivinar el tipo de archivo. Evita ataques XSS.
+    Header always set X-Content-Type-Options "nosniff"
+
+    # 3. Referrer-Policy
+    # Controla cuánta información se envía en la cabecera Referer al navegar a otros sitios.
+    # strict-origin-when-cross-origin: Envía ruta completa a tu mismo sitio, pero solo el dominio base a externos.
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # 4. X-Frame-Options
+    # Protege contra Clickjacking evitando que el sitio sea incrustado en iframes maliciosos.
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # 5. Content-Security-Policy (CSP) Básico y Seguro
+    # NOTA: En tu código veo que usas CDNs (jsdelivr, jquery) e imágenes/audios externos (Pixabay).
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://code.jquery.com https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com https://unpkg.com https://cdnjs.cloudflare.com; img-src 'self' data: https: https://*.tile.openstreetmap.org https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; media-src 'self' https://cdn.pixabay.com https://www.youtube.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' https://cdn.jsdelivr.net https://*.tile.openstreetmap.org https://photon.komoot.io https://nominatim.openstreetmap.org"
+</IfModule>
+
+# PHP Configuration Limits
+<IfModule mod_php.c>
+    php_value upload_max_filesize 512M
+    php_value post_max_size 512M
+    php_value memory_limit 512M
+</IfModule>
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 512M
+    php_value post_max_size 512M
+    php_value memory_limit 512M
+</IfModule>
+<IfModule php_module>
+    php_value upload_max_filesize 512M
+    php_value post_max_size 512M
+    php_value memory_limit 512M
+</IfModule>
