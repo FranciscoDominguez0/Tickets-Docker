@@ -23,8 +23,8 @@ services:
 
       MYSQL_DATABASE: tickets_db
 
-      MYSQL_USER: tickets_user
-      MYSQL_PASSWORD: tickets_pass_2026
+      MYSQL_USER: administrador
+      MYSQL_PASSWORD: Panama26
 
     ports:
       - "3307:3306"
