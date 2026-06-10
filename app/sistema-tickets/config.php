@@ -14,8 +14,8 @@ if (!function_exists('mysqli_connect')) {
 define('DB_HOST', 'db');
 define('DB_PORT', '3306');
 
-define('DB_USER', 'tickets_user');
-define('DB_PASS', 'tickets_pass_2026');
+define('DB_USER', 'administrador');
+define('DB_PASS', 'Panama26');
 
 define('DB_NAME', 'tickets_db');
 
