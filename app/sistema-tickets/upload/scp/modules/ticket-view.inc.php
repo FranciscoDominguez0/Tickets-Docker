@@ -360,10 +360,11 @@ if ($ticketClientSignaturePath !== '') {
         }
         
         $apprColor = '#64748b';
-        if ($ticketApprovalStatus === 'pending') $apprColor = '#f59e0b';
-        elseif ($ticketApprovalStatus === 'cotizacion') $apprColor = '#0ea5e9';
-        elseif ($ticketApprovalStatus === 'aprobado') $apprColor = '#10b981';
-        elseif ($ticketApprovalStatus === 'rechazado') $apprColor = '#ef4444';
+        $apprBorder = '#64748b';
+        if ($ticketApprovalStatus === 'pending') { $apprColor = '#64748b'; $apprBorder = '#64748b'; }
+        elseif ($ticketApprovalStatus === 'cotizacion') { $apprColor = '#0f766e'; $apprBorder = '#0f766e'; }
+        elseif ($ticketApprovalStatus === 'aprobado') { $apprColor = '#166534'; $apprBorder = '#166534'; }
+        elseif ($ticketApprovalStatus === 'rechazado') { $apprColor = '#9f1239'; $apprBorder = '#9f1239'; }
         
         $apprTitle = 'Pendiente';
         if ($ticketApprovalStatus === 'cotizacion') $apprTitle = 'Cotización';
@@ -379,8 +380,8 @@ if ($ticketClientSignaturePath !== '') {
                 Ticket #<?php echo html($t['ticket_number']); ?>
             </h1>
             <?php if ($ticketApprovalStatus !== 'none'): ?>
-                <span style="font-weight: 800; font-size: 0.75rem; color: <?php echo $apprColor; ?>; background: <?php echo $apprColor; ?>15; padding: 4px 10px; border-radius: 999px;">
-                    <i class="bi bi-shield-check"></i> <?php echo $apprTitle; ?>
+                <span style="font-weight:800; font-size:0.75rem; color:<?php echo $apprColor; ?>; background:<?php echo $apprColor; ?>44; padding:4px 10px; border-radius:999px; border:1px solid <?php echo $apprColor; ?>99; display:inline-flex; align-items:center; gap:5px;">
+                    <i class="bi <?php echo $ticketApprovalStatus === 'pending' ? 'bi-shield-lock-fill' : 'bi-shield-check'; ?>"></i> <?php echo html($apprTitle); ?>
                 </span>
             <?php endif; ?>
         </div>
@@ -392,8 +393,8 @@ if ($ticketClientSignaturePath !== '') {
             <span>Ticket #<?php echo html($t['ticket_number']); ?></span>
             
             <?php if ($ticketApprovalStatus !== 'none'): ?>
-                <span style="font-weight: 800; font-size: 0.8rem; color: <?php echo $apprColor; ?>; background: <?php echo $apprColor; ?>15; padding: 4px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; letter-spacing: 0.02em;">
-                    <i class="bi bi-shield-check" style="font-size: 0.9rem;"></i> <?php echo $apprTitle; ?>
+                <span style="font-weight:800; font-size:0.8rem; color:<?php echo $apprColor; ?>; background:<?php echo $apprColor; ?>44; padding:4px 12px; border-radius:999px; display:inline-flex; align-items:center; gap:6px; letter-spacing:0.02em; border:1px solid <?php echo $apprColor; ?>99;">
+                    <i class="bi <?php echo $ticketApprovalStatus === 'pending' ? 'bi-shield-lock-fill' : 'bi-shield-check'; ?>" style="font-size:0.9rem;"></i> <?php echo html($apprTitle); ?>
                 </span>
             <?php endif; ?>
         </h1>
@@ -432,7 +433,7 @@ if ($ticketClientSignaturePath !== '') {
 
                         if (str_contains($stName, 'abiert') || str_contains($stName, 'open')) $statusIcon = 'bi-record-circle-fill';
                         elseif ($isClosing) $statusIcon = 'bi-check-circle-fill';
-                        elseif (str_contains($stName, 'espera') || str_contains($stName, 'wait')) $statusIcon = 'bi-pause-circle-fill';
+                        elseif (str_contains($stName, 'espera') || str_contains($stName, 'wait') || str_contains($stName, 'retenid')) $statusIcon = 'bi-pause-circle-fill';
                         elseif (str_contains($stName, 'pendient')) $statusIcon = 'bi-clock-fill';
                         
                         $isOpening = (str_contains($stName, 'abiert') || str_contains($stName, 'open'));
@@ -586,6 +587,11 @@ if ($ticketClientSignaturePath !== '') {
             </div>
 
             <?php if (empty($t['closed'])): ?>
+                <?php if ($ticketApprovalStatus === 'cotizacion'): ?>
+                    <button type="button" class="btn-icon" title="Enviar Cotización Ejecutiva" data-bs-toggle="modal" data-bs-target="#modalExecutiveQuote">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                    </button>
+                <?php endif; ?>
                 <button type="button" class="btn-icon <?php echo ($canTicketClose && !empty($t['signature_requested'])) ? 'text-warning' : ''; ?> <?php echo $canTicketClose ? '' : 'disabled'; ?>" 
                         title="<?php echo $canTicketClose ? (!empty($t['signature_requested']) ? 'Firma ya solicitada' : 'Solicitar firma del cliente') : 'Sin permiso'; ?>"
                         <?php echo $canTicketClose ? 'data-bs-toggle="modal" data-bs-target="#modalRequestSignature"' : 'onclick="showNoPermissionAlert(\'solicitar firma del cliente\'); return false;"'; ?>
@@ -604,20 +610,6 @@ if ($ticketClientSignaturePath !== '') {
         <script>
             setTimeout(function() {
                 var alertEl = document.getElementById('signatureSuccessAlert');
-                if (alertEl) {
-                    var bsAlert = new bootstrap.Alert(alertEl);
-                    bsAlert.close();
-                }
-            }, 5000);
-        </script>
-    <?php elseif (isset($_GET['msg']) && $_GET['msg'] === 'billing_confirmed'): ?>
-        <div class="alert alert-success mx-4 mt-3 alert-dismissible fade show" id="billingSuccessAlert" role="alert">
-            <i class="bi bi-check-circle-fill me-2"></i> Facturación confirmada correctamente.
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        <script>
-            setTimeout(function() {
-                var alertEl = document.getElementById('billingSuccessAlert');
                 if (alertEl) {
                     var bsAlert = new bootstrap.Alert(alertEl);
                     bsAlert.close();
@@ -1021,6 +1013,17 @@ if ($ticketClientSignaturePath !== '') {
             $pStyle = "background: {$pColor}15; color: {$pColor}; border: none; border-radius: 50rem;";
             $sColor = $t['status_color'] ?: '#64748b';
             $sStyle = "background: {$sColor}15; color: {$sColor}; border: none; border-radius: 50rem;";
+            
+            // Comprobar si venimos de la misma página (recarga o post-redirect)
+            $isFromSameTicket = false;
+            if (isset($_SERVER['HTTP_REFERER'])) {
+                $refQuery = parse_url($_SERVER['HTTP_REFERER'], PHP_URL_QUERY);
+                parse_str($refQuery ?? '', $refParams);
+                if (strpos($_SERVER['HTTP_REFERER'], 'tickets.php') !== false && isset($refParams['id']) && (int)$refParams['id'] === (int)$tid) {
+                    $isFromSameTicket = true;
+                }
+            }
+
         ?>
 
         <!-- DISEÑO MÓVIL (Visible solo en pantallas pequeñas) -->
@@ -1061,15 +1064,17 @@ if ($ticketClientSignaturePath !== '') {
             $bstatus = $t['billing_status'] ?? 'pending';
             $canConfirmBilling = roleHasPermission('admin.access');
             if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1 && $bstatus === 'pending'): ?>
-                <div class="mobile-header" style="margin-top: 8px;">
-                    <?php if ($canConfirmBilling): ?>
-                        <a href="#" class="mobile-badge billing-badge-pending" style="background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; text-decoration:none;" data-bs-toggle="modal" data-bs-target="#modalConfirmBilling">
-                            <i class="bi bi-clock-history"></i> Pendiente Facturación
-                        </a>
-                    <?php else: ?>
-                        <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" class="mobile-badge billing-badge-pending" style="background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; text-decoration:none;">
-                            <i class="bi bi-clock-history"></i> Pendiente Facturación
-                        </a>
+                <div class="mobile-header" style="margin-top: 8px; flex-wrap: wrap;">
+                    <?php if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1 && $bstatus === 'pending'): ?>
+                        <?php if ($canConfirmBilling): ?>
+                            <a href="#" class="mobile-badge billing-badge-pending" style="background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; text-decoration:none;" data-bs-toggle="modal" data-bs-target="#modalConfirmBilling">
+                                <i class="bi bi-clock-history"></i> Pendiente Facturación
+                            </a>
+                        <?php else: ?>
+                            <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" class="mobile-badge billing-badge-pending" style="background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; text-decoration:none;">
+                                <i class="bi bi-clock-history"></i> Pendiente Facturación
+                            </a>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
@@ -1177,11 +1182,11 @@ if ($ticketClientSignaturePath !== '') {
                         <?php 
                         $bstatus = $t['billing_status'] ?? 'pending';
                         if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1 && $bstatus === 'pending'): ?>
-                            <div style="display: flex; gap: 8px; margin-top: 4px;">
+                            <div style="display: flex; gap: 8px;">
                             <?php if ($canConfirmBilling): ?>
-                                <a href="#" class="billing-icon billing-badge-pending" style="display: inline-flex; align-items: center; gap: 6px; background: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 50rem; border: 1px solid #fef08a; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: transform 0.2s;" title="Haz clic para confirmar" data-bs-toggle="modal" data-bs-target="#modalConfirmBilling" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';"><i class="bi bi-clock-history" style="font-size: 1.1rem;"></i> Pendiente Facturación</a>
+                                <a href="#" class="billing-badge-pending" style="display: inline-flex; align-items: center; gap: 6px; background: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 50rem; border: 1px solid #fef08a; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: transform 0.2s;" title="Haz clic para confirmar" data-bs-toggle="modal" data-bs-target="#modalConfirmBilling" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';"><i class="bi bi-clock-history" style="font-size: 1.1rem;"></i> Pendiente Facturación</a>
                             <?php else: ?>
-                                <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" class="billing-icon billing-badge-pending" style="display: inline-flex; align-items: center; gap: 6px; background: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 50rem; border: 1px solid #fef08a; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: transform 0.2s;" title="Ver reporte" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';"><i class="bi bi-clock-history" style="font-size: 1.1rem;"></i> Pendiente Facturación</a>
+                                <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" class="billing-badge-pending" style="display: inline-flex; align-items: center; gap: 6px; background: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 50rem; border: 1px solid #fef08a; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: transform 0.2s;" title="Ver reporte" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';"><i class="bi bi-clock-history" style="font-size: 1.1rem;"></i> Pendiente Facturación</a>
                             <?php endif; ?>
                             </div>
                         <?php endif; ?>
@@ -1212,10 +1217,7 @@ if ($ticketClientSignaturePath !== '') {
                     <div class="value" style="font-weight: 700; color: #334155;"><?php echo html($t['dept_name']); ?></div>
                 </div>
                 
-                <div class="field">
-                    <label><i class="bi bi-calendar-event"></i> CREADO EN</label>
-                    <div class="value" style="color: #64748b; font-size: 0.9rem;"><?php echo $t['created'] ? date('d/m/y h:i A', strtotime($t['created'])) : '—'; ?></div>
-                </div>
+
             </div>
 
             <!-- Columna 2: Cliente y Ubicación -->
@@ -1342,9 +1344,14 @@ if ($ticketClientSignaturePath !== '') {
         </div>
         <?php
         $msg = $_GET['msg'] ?? '';
-        $msgText = ['reply_sent' => 'Respuesta publicada correctamente.', 'created' => 'Ticket creado correctamente.', 'updated' => 'Estado actualizado.', 'assigned' => 'Asignación actualizada.', 'marked' => 'Marcado como contestado.', 'owner' => 'Propietario cambiado.', 'transferred' => 'Ticket transferido correctamente.', 'blocked' => 'Email bloqueado.', 'linked' => 'Ticket vinculado.', 'unlinked' => 'Vinculación eliminada.', 'collab_added' => 'Colaborador añadido.', 'collab_removed' => 'Colaborador quitado.', 'merged' => 'Tickets unidos correctamente.'];
+        $msgText = ['reply_sent' => 'Respuesta publicada correctamente.', 'created' => 'Ticket creado correctamente.', 'updated' => 'Estado actualizado.', 'assigned' => 'Asignación actualizada.', 'marked' => 'Marcado como contestado.', 'owner' => 'Propietario cambiado.', 'transferred' => 'Ticket transferido correctamente.', 'blocked' => 'Email bloqueado.', 'linked' => 'Ticket vinculado.', 'unlinked' => 'Vinculación eliminada.', 'collab_added' => 'Colaborador añadido.', 'collab_removed' => 'Colaborador quitado.', 'merged' => 'Tickets unidos correctamente.', 'approval_requested' => 'Solicitud de aprobación enviada al jefe. El ticket quedó en Pendiente aprobación.', 'quote_sent' => 'Cotización enviada exitosamente al Jefe de la Organización.'];
+        $msgErrorText = ['approval_already_pending' => 'Este ticket ya tiene una solicitud de aprobación pendiente.', 'approval_no_manager' => 'No se encontró un jefe de organización para este ticket.', 'approval_no_email' => 'El jefe de la organización no tiene un correo válido.', 'approval_email_failed' => 'No se pudo enviar el correo de aprobación al jefe.', 'approval_error' => 'No se pudo procesar la solicitud de aprobación.', 'quote_error' => 'Error al enviar la cotización. Asegúrate de adjuntar un archivo PDF válido.'];
         if ($msg && isset($msgText[$msg])): ?>
             <div class="alert alert-success alert-dismissible fade show"><?php echo html($msgText[$msg]); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php elseif ($msg && isset($msgErrorText[$msg])): ?>
+            <div class="alert alert-danger alert-dismissible fade show"><?php echo html($msgErrorText[$msg]); ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
@@ -1481,7 +1488,7 @@ if ($ticketClientSignaturePath !== '') {
                                                     $iconClass = 'bi-file-word text-info';
                                                 }
 
-                                                $previewUrl = "tickets.php?id=" . (int)$tid . "&download=" . (int)$a['id'] . "&inline=1";
+                                                $previewUrl = "tickets.php?id=" . (int)$tid . "&download=" . (int)$a['id'] . "&inline=1&v=2";
                                             ?>
                                             <div class="chat-att-item">
                                                 <div class="chat-att-icon"><i class="bi <?php echo $iconClass; ?>"></i></div>
@@ -1567,10 +1574,19 @@ if ($ticketClientSignaturePath !== '') {
                     <div class="badge bg-secondary">No tienes permisos para reabrir</div>
                 <?php endif; ?>
             </div>
+        <?php elseif ($ticketApprovalStatus === 'cotizacion'): ?>
+            <div style="text-align:center; padding:40px 20px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:14px; margin-bottom:20px;" class="closed-reply-prompt">
+                <i class="bi bi-file-earmark-pdf" style="font-size:2rem; color:#94a3b8; margin-bottom:10px; display:block;"></i>
+                <h4 style="font-size:1.1rem; color:#475569; font-weight:700; margin-bottom:6px;">Cotización Ejecutiva Requerida</h4>
+                <p style="color:#64748b; font-size:0.95rem; margin-bottom:16px;">Debes enviar la cotización ejecutiva para habilitar el hilo de respuestas.</p>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalExecutiveQuote" style="border-radius:10px; font-weight:700; padding:10px 24px;">
+                    <i class="bi bi-upload me-2"></i>Subir Cotización
+                </button>
+            </div>
         <?php else: ?>
             <form method="post" action="tickets.php?id=<?php echo $tid; ?>" enctype="multipart/form-data" id="form-reply">
                 <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
-                <div class="mb-3">
+                <div class="mb-3 summernote-wrapper" style="min-height: 200px;">
                     <label class="form-label fw-bold">Respuesta</label>
                     <textarea name="body" id="reply_body" class="form-control" placeholder="Escribe tu respuesta aquí..."></textarea>
                 </div>
@@ -1622,7 +1638,7 @@ if ($ticketClientSignaturePath !== '') {
                 <div class="modal-body" style="padding: 32px; background: #ffffff;">
                     <div class="mb-4">
                         <label class="form-label mb-2" style="font-weight: 700; color: #334155; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Contenido del mensaje</label>
-                        <div class="editor-wrapper" style="border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                        <div class="editor-wrapper summernote-wrapper" style="min-height: 300px; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
                             <textarea name="body" id="edit-entry-body" class="form-control" rows="10"></textarea>
                         </div>
                     </div>
@@ -1697,10 +1713,47 @@ if ($ticketClientSignaturePath !== '') {
     </div>
 </div>
 
-<link href="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.css" rel="stylesheet">
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/lang/summernote-es-ES.min.js"></script>
+<!-- Modal: Enviar Cotización Ejecutiva -->
+<div class="modal fade" id="modalExecutiveQuote" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-file-earmark-pdf text-primary"></i> Enviar Cotización Ejecutiva
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="tickets.php?id=<?php echo $tid; ?>" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="send_executive_quote">
+                <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
+                <div class="modal-body">
+                    <p class="text-secondary">
+                        Sube el documento en PDF. Se enviará automáticamente al correo del Jefe de la Organización para su revisión y aprobación.
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Archivo PDF de Cotización</label>
+                        <input type="file" name="quote_pdf" accept=".pdf" required class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mensaje opcional</label>
+                        <textarea name="quote_msg" class="form-control" placeholder="Escribe un mensaje para adjuntar a la cotización..." rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-send me-1"></i> Enviar al Jefe
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<link href="../css/vendor/summernote-lite.min.css" rel="stylesheet">
+<script src="../js/vendor/jquery-3.6.0.min.js"></script>
+<script src="../js/vendor/summernote-lite.min.js"></script>
+<script src="../js/vendor/summernote-es-ES.min.js"></script>
 <div class="modal fade" id="vigitecImageInsertModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -2009,13 +2062,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 );
             });
 
-            $('#modalEditEntry').modal('show');
+            var mEdit = document.getElementById('modalEditEntry');
+            if (mEdit && window.bootstrap) bootstrap.Modal.getOrCreateInstance(mEdit).show();
         });
 
         $(document).on('click', '.js-delete-entry', function() {
             var entryId = $(this).data('id');
             $('#delete-entry-id').val(entryId);
-            $('#modalDeleteEntry').modal('show');
+            var mDel = document.getElementById('modalDeleteEntry');
+            if (mDel && window.bootstrap) bootstrap.Modal.getOrCreateInstance(mDel).show();
         });
 
         // Inicializar summernote para el editor de edición
@@ -2207,6 +2262,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     function removeAt(index) {
         try {
+            if (!input) return;
             var dt = new DataTransfer();
             for (var i = 0; i < input.files.length; i++) {
                 if (i !== index) dt.items.add(input.files[i]);
@@ -2216,6 +2272,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) {}
     }
     function updateList() {
+        if (!list || !input) return;
         list.innerHTML = '';
         var maxMb = <?php echo (int)getAppSetting('tickets.ticket_max_file_mb', '10'); ?>;
         var maxSize = maxMb * 1024 * 1024;
@@ -2302,15 +2359,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
-    list.addEventListener('click', function(e) {
-        var btn = e.target.closest('.dz-preview-remove');
-        if (btn) {
-            e.preventDefault();
-            e.stopPropagation();
-            removeAt(parseInt(btn.getAttribute('data-remove-index')));
-        }
-    });
-    input.addEventListener('change', updateList);
+    if (list) {
+        list.addEventListener('click', function(e) {
+            var btn = e.target.closest('.dz-preview-remove');
+            if (btn) {
+                e.preventDefault();
+                e.stopPropagation();
+                removeAt(parseInt(btn.getAttribute('data-remove-index')));
+            }
+        });
+    }
+    if (input) {
+        input.addEventListener('change', updateList);
+    }
 
     window.validateEditFiles = function(input) {
         var maxMb = <?php echo (int)getAppSetting('tickets.ticket_max_file_mb', '10'); ?>;
@@ -2337,24 +2398,28 @@ document.addEventListener('DOMContentLoaded', function() {
         
         document.getElementById('edit-upload-hint').textContent = input.files.length + ' archivos seleccionados';
     };
-    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
-    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
-    zone.addEventListener('drop', function(e) {
-        e.preventDefault();
-        zone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            input.files = e.dataTransfer.files;
-            updateList();
-        }
-    });
+    if (zone) {
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                if (input) {
+                    input.files = e.dataTransfer.files;
+                    updateList();
+                }
+            }
+        });
+    }
     var btnReset = document.getElementById('btn-reset');
     if (btnReset) {
         btnReset.addEventListener('click', function() {
             if (typeof jQuery !== 'undefined' && jQuery('#reply_body').length && jQuery('#reply_body').summernote('code')) {
                 jQuery('#reply_body').summernote('reset');
             }
-            input.value = '';
-            list.innerHTML = '';
+            if (input) input.value = '';
+            if (list) list.innerHTML = '';
         });
     }
 
@@ -2492,7 +2557,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (data && data.success) {
-                var requiresReport = <?php echo (roleHasPermission('ticket.reports') && (int)($t['requires_report'] ?? 0) === 1) ? 1 : 0; ?>;
+                var requiresReport = <?php echo (roleHasPermission('ticket.reports') && (int)($t['requires_report'] ?? 0) === 1 && ($t['approval_status'] ?? '') !== 'rechazado') ? 1 : 0; ?>;
                 var finalMsg = 'updated';
                 if (requiresReport === 1) {
                     finalMsg = 'closed_report';
@@ -2865,32 +2930,117 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Modal Confirmar Facturación -->
 <div class="modal fade" id="modalConfirmBilling" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 20px; border: none; box-shadow: 0 25px 60px rgba(0,0,0,0.2); overflow: hidden;">
-            <div class="modal-header" style="border-bottom: 1px solid #f1f5f9; padding: 22px 26px; background: #fff;">
-                <h5 class="modal-title" style="font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 12px; font-size: 1.15rem;">
-                    <div style="width: 36px; height: 36px; background: #dcfce7; color: #166534; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                        <i class="bi bi-shield-check"></i>
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
+
+            <!-- Estado: confirmación -->
+            <div id="billingConfirmState">
+                <div class="modal-header border-0" style="padding: 22px 26px;">
+                    <h5 class="modal-title fw-bold d-flex align-items-center gap-2" style="font-size: 1.1rem;">
+                        <div class="d-flex align-items-center justify-content-center rounded-3 bg-success bg-opacity-10 text-success" style="width:36px;height:36px;flex-shrink:0;">
+                            <i class="bi bi-shield-check"></i>
+                        </div>
+                        Confirmar Facturación
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="padding: 6px 26px 24px;">
+                    <p class="text-muted mb-3" style="font-size: 0.95rem; line-height: 1.6;">
+                        ¿Estás seguro de que deseas marcar este ticket como <strong>facturado</strong>? Esta acción confirmará el proceso de facturación de forma permanente.
+                    </p>
+                    <div class="d-flex align-items-center justify-content-between gap-2 p-3 rounded-3 border" style="font-size: 0.875rem;">
+                        <span class="text-muted fw-semibold"><i class="bi bi-file-earmark-text me-1"></i> Puedes revisar los costos antes de confirmar:</span>
+                        <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" target="_blank" class="btn btn-sm btn-outline-primary fw-bold" style="border-radius: 8px; white-space: nowrap;">Ver Reporte</a>
                     </div>
-                    Confirmar Facturación
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" style="padding: 26px; background: #fff;">
-                <p style="color: #475569; font-size: 1rem; line-height: 1.6; margin-bottom: 18px;">
-                    ¿Estás seguro de que deseas marcar este ticket como <strong style="color: #0f172a;">facturado</strong>? Esta acción confirmará el proceso de facturación de forma permanente.
-                </p>
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                    <span style="font-size: 0.9rem; color: #64748b; font-weight: 600; line-height: 1.3;"><i class="bi bi-file-earmark-text me-1"></i> Puedes revisar los costos antes de confirmar:</span>
-                    <a href="reporte_costos.php?ticket_id=<?php echo $tid; ?>" target="_blank" class="btn btn-sm" style="background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-weight: 700; border-radius: 8px; white-space: nowrap;">Ver Reporte</a>
+                </div>
+                <div class="modal-footer border-0" style="padding: 16px 26px; gap: 10px;">
+                    <button type="button" class="btn btn-light fw-semibold" data-bs-dismiss="modal" style="border-radius: 12px; padding: 9px 20px;">Cancelar</button>
+                    <button type="button" id="btnConfirmBillingFinal" class="btn btn-success fw-bold" style="border-radius: 12px; padding: 9px 22px;">
+                        <i class="bi bi-check2-circle me-1"></i> Confirmar y Facturar
+                    </button>
                 </div>
             </div>
-            <div class="modal-footer" style="border-top: 1px solid #f1f5f9; padding: 20px 26px; gap: 12px; background: #f8fafc;">
-                <button type="button" class="btn" data-bs-dismiss="modal" style="background: #fff; color: #64748b; font-weight: 700; border-radius: 12px; padding: 10px 20px; border: 1px solid #e2e8f0; font-size: 0.9rem;">Cancelar</button>
-                <a href="tickets.php?id=<?php echo $tid; ?>&action=confirm_billing" class="btn" style="background: #15803d; color: #fff; font-weight: 700; border-radius: 12px; padding: 10px 24px; border: none; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.3); font-size: 0.9rem;">Confirmar y Facturar</a>
+
+            <!-- Estado: procesando -->
+            <div id="billingLoadingState" style="display:none;">
+                <div class="modal-body text-center py-5">
+                    <div class="billing-spinner mx-auto mb-3"></div>
+                    <div class="fw-bold mb-1">Procesando facturación…</div>
+                    <div class="text-muted small">Por favor espera un momento</div>
+                </div>
             </div>
+
+            <!-- Estado: éxito -->
+            <div id="billingSuccessState" style="display:none;">
+                <div class="modal-body text-center py-5">
+                    <div class="billing-success-icon mx-auto mb-3 d-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10">
+                        <i class="bi bi-check-lg text-success" style="font-size: 2rem;"></i>
+                    </div>
+                    <div class="fw-bold mb-1" style="font-size: 1.1rem;">¡Facturación confirmada!</div>
+                    <div class="text-muted small">El ticket ha sido marcado como facturado correctamente.</div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
+
+<style>
+.billing-spinner {
+    width: 56px; height: 56px;
+    border: 4px solid rgba(25,135,84,.2);
+    border-top-color: #198754;
+    border-radius: 50%;
+    animation: billingSpin .7s linear infinite;
+}
+body.dark-mode .billing-spinner {
+    border-color: rgba(74,222,128,.15);
+    border-top-color: #4ade80;
+}
+.billing-success-icon {
+    width: 72px; height: 72px;
+    animation: billingPop .4s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes billingSpin { to { transform: rotate(360deg); } }
+@keyframes billingPop  { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+</style>
+
+<script>
+(function () {
+    var btnConfirm = document.getElementById('btnConfirmBillingFinal');
+    if (!btnConfirm) return;
+
+    var billingUrl = 'tickets.php?id=<?php echo (int)$tid; ?>&action=confirm_billing';
+
+    btnConfirm.addEventListener('click', function () {
+        var confirmState = document.getElementById('billingConfirmState');
+        var loadingState = document.getElementById('billingLoadingState');
+        var successState = document.getElementById('billingSuccessState');
+
+        confirmState.style.display = 'none';
+        loadingState.style.display = 'block';
+        successState.style.display  = 'none';
+
+        fetch(billingUrl, { credentials: 'same-origin', redirect: 'manual' })
+            .then(function () {
+                loadingState.style.display = 'none';
+                successState.style.display = 'block';
+                setTimeout(function () { window.location.href = billingUrl; }, 1600);
+            })
+            .catch(function () {
+                window.location.href = billingUrl;
+            });
+    });
+
+    var modalEl = document.getElementById('modalConfirmBilling');
+    if (modalEl) {
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            document.getElementById('billingConfirmState').style.display = 'block';
+            document.getElementById('billingLoadingState').style.display = 'none';
+            document.getElementById('billingSuccessState').style.display  = 'none';
+        });
+    }
+})();
+</script>
 
 <style>
     .creative-pop-overlay-scp{position:fixed; inset:0; background:rgba(15,23,42,.46); display:none; align-items:center; justify-content:center; padding:18px; z-index:9999; backdrop-filter: blur(10px);}

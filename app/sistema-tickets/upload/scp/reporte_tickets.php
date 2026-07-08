@@ -24,12 +24,8 @@ if (!$canViewReports) {
 $currentRoute = 'reportes';
 $eid = empresaId();
 
-// Verify if ticket_reports table exists
-$hasReportsTable = false;
-$chk = $mysqli->query("SHOW TABLES LIKE 'ticket_reports'");
-if ($chk && $chk->num_rows > 0) {
-    $hasReportsTable = true;
-}
+// Usar dbTableExists() con caché de sesión en lugar de SHOW TABLES directo
+$hasReportsTable = dbTableExists('ticket_reports');
 
 // Find "cerrado/closed" status ID dynamically
 $statusIdClosed = 0;
@@ -91,6 +87,9 @@ if ($statusIdClosed > 0) {
         ? " AND (t.ticket_number LIKE ? OR d.name LIKE ? OR CONCAT(u.firstname,' ',u.lastname) LIKE ? OR u.email LIKE ?)"
         : '';
 
+    $hasTicketApprovals = function_exists('dbTableExists') ? dbTableExists('ticket_approvals') : false;
+    $rejectFilter = $hasTicketApprovals ? " AND NOT EXISTS (SELECT 1 FROM ticket_approvals ta WHERE ta.ticket_id = t.id AND ta.status = 'rechazado')" : '';
+
     // Filtrado estricto por mes (solo el mes seleccionado o todos)
     $reportJoinCount   = $hasReportsTable ? ' LEFT JOIN ticket_reports r ON r.ticket_id = t.id' : '';
     if ($monthFilter === 'all') {
@@ -106,7 +105,7 @@ if ($statusIdClosed > 0) {
                    JOIN departments d ON t.dept_id = d.id AND d.requires_report = 1
                    {$countJoin}
                    {$reportJoinCount}
-                   WHERE t.empresa_id = ? AND t.status_id = ? {$monthWhere} {$searchWhere}";
+                   WHERE t.empresa_id = ? AND t.status_id = ? {$monthWhere} {$searchWhere} {$rejectFilter}";
     $cStmt = $mysqli->prepare($countQuery);
     if ($cStmt) {
         if ($monthFilter === 'all') {
@@ -146,7 +145,7 @@ if ($statusIdClosed > 0) {
               LEFT JOIN staff s ON t.staff_id = s.id
               {$dataJoin}
               {$reportJoin}
-              WHERE t.empresa_id = ? AND t.status_id = ? {$monthWhere} {$searchWhere}
+              WHERE t.empresa_id = ? AND t.status_id = ? {$monthWhere} {$searchWhere} {$rejectFilter}
               ORDER BY t.closed DESC, t.id DESC
               LIMIT ? OFFSET ?";
 
@@ -175,14 +174,17 @@ if ($statusIdClosed > 0) {
     $totalPages = 1;
 }
 
-// Obtener IDs de tickets vistos por este staff (para persistencia del badge NEW)
 $seenIds = [];
 $sid = (int)($_SESSION['staff_id'] ?? 0);
-if ($sid > 0) {
-    $resSeen = $mysqli->query("SELECT ticket_id FROM staff_reports_seen WHERE staff_id = $sid");
-    if ($resSeen) {
-        while ($rs = $resSeen->fetch_assoc()) {
-            $seenIds[] = (int)$rs['ticket_id'];
+if ($sid > 0 && dbTableExists('staff_reports_seen')) {
+    $stmtSeen = $mysqli->prepare('SELECT ticket_id FROM staff_reports_seen WHERE staff_id = ?');
+    if ($stmtSeen) {
+        $stmtSeen->bind_param('i', $sid);
+        if ($stmtSeen->execute()) {
+            $resSeen = $stmtSeen->get_result();
+            while ($resSeen && ($rs = $resSeen->fetch_assoc())) {
+                $seenIds[] = (int)$rs['ticket_id'];
+            }
         }
     }
 }
@@ -286,7 +288,7 @@ body.dark-mode .rpt-card-num {
 
 /* ── Dark Mode Overrides for Cards ── */
 body.dark-mode .rpt-card {
-    background: #111111 !important;
+    background: #000000 !important;
     border-color: #222 !important;
     box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
 }
@@ -308,7 +310,7 @@ body.dark-mode .rpt-card-body .rpt-card-subject {
     <div class="tickets-header">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
             <div>
-                <h1>Reportes de Tickets</h1>
+                <h1>Reportes de Costo</h1>
                 <div class="sub">Tickets cerrados de departamentos que requieren reporte · <?php echo $totalTickets; ?> resultado<?php echo $totalTickets !== 1 ? 's' : ''; ?></div>
             </div>
             <a href="export_reports_csv.php?month=<?php echo urlencode($monthFilter); ?>&q=<?php echo urlencode($search); ?>" class="btn-new" style="background: linear-gradient(135deg, #16a34a, #15803d);">

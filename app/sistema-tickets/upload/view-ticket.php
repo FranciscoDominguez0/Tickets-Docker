@@ -193,6 +193,17 @@ if ($stmtA) {
     }
 }
 
+// Check if quote was already sent
+$quoteAlreadySent = false;
+$stmtL = $mysqli->prepare("SELECT id FROM logs WHERE action = 'executive_quote_sent' AND object_type = 'ticket' AND object_id = ? LIMIT 1");
+if ($stmtL) {
+    $stmtL->bind_param('i', $tid);
+    $stmtL->execute();
+    if ($stmtL->get_result()->fetch_assoc()) {
+        $quoteAlreadySent = true;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array($_POST['action'], ['cotizacion', 'aprobado', 'rechazado'])) {
     if ($ticketApprovalStatus === 'pending' && !empty($user['org_tickets_view'])) {
         if (validateCSRF()) {
@@ -202,10 +213,97 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
             if ($stmtUpd->execute()) {
                 $ticketApprovalStatus = $newStatus;
                 
+                if ($newStatus === 'rechazado') {
+                    // Cierra el ticket
+                    $stmtC = $mysqli->prepare("UPDATE tickets SET closed = NOW(), status_id = COALESCE((SELECT id FROM ticket_status WHERE name LIKE '%cerrado%' OR name LIKE '%closed%' LIMIT 1), 5) WHERE id = ? AND empresa_id = ?");
+                    if ($stmtC) {
+                        $stmtC->bind_param('ii', $tid, $eid);
+                        $stmtC->execute();
+                    }
+                }
+                
                 if (function_exists('notifyApprovalToAdminRecipients')) {
                     $statusLabelNotif = ($newStatus === 'cotizacion') ? 'Cotización' : (($newStatus === 'aprobado') ? 'Aprobado' : 'Rechazado');
                     notifyApprovalToAdminRecipients($tid, $statusLabelNotif);
                 }
+                
+                $managerName = htmlspecialchars($user['name'], ENT_QUOTES);
+                $svgCheck = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="#16a34a" viewBox="0 0 16 16" style="vertical-align:-1px;"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/></svg>';
+                $svgX     = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="#dc2626" viewBox="0 0 16 16" style="vertical-align:-1px;"><path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/></svg>';
+                if ($newStatus === 'cotizacion') {
+                    $threadMsg = 'Cotización solicitada por: ' . $managerName;
+                } elseif ($newStatus === 'aprobado') {
+                    $threadMsg = $svgCheck . ' Aprobado por: ' . $managerName;
+                } else {
+                    $threadMsg = $svgX . ' Rechazado por: ' . $managerName;
+                }
+                $entry_id = 0;
+                $stmtTh = $mysqli->prepare("INSERT INTO thread_entries (empresa_id, thread_id, user_id, body, created) VALUES (?, ?, ?, ?, NOW())");
+                if ($stmtTh && $thread_id > 0) {
+                    $stmtTh->bind_param('iiis', $eid, $thread_id, $uid, $threadMsg);
+                    if ($stmtTh->execute()) {
+                        $entry_id = (int)$mysqli->insert_id;
+                    }
+                }
+                
+                // Process Orden de Compra file upload
+                if ($newStatus === 'aprobado' && $entry_id > 0 && !empty($_FILES['orden_compra']['name'])) {
+                    $file = $_FILES['orden_compra'];
+                    if ($file['error'] === UPLOAD_ERR_OK) {
+                        $orig = (string)$file['name'];
+                        $mime = (string)$file['type'];
+                        $size = (int)$file['size'];
+                        $ext = strtolower((string)(pathinfo($orig, PATHINFO_EXTENSION) ?: ''));
+                        
+                        $allowedExt = [
+                            'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png',
+                            'gif' => 'image/gif', 'webp' => 'image/webp', 'pdf' => 'application/pdf',
+                            'doc' => 'application/msword', 'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'xls' => 'application/vnd.ms-excel', 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            'txt' => 'text/plain', 'zip' => 'application/zip', 'rar' => 'application/x-rar-compressed'
+                        ];
+                        
+                        if (isset($allowedExt[$ext])) {
+                            $safeName = bin2hex(random_bytes(8)) . '_' . time() . '.' . preg_replace('/[^a-z0-9]/i', '', $ext);
+                            $uploadDir = defined('ATTACHMENTS_DIR') ? ATTACHMENTS_DIR : __DIR__ . '/uploads/attachments';
+                            if (!is_dir($uploadDir)) {
+                                @mkdir($uploadDir, 0755, true);
+                            }
+                            $path = $uploadDir . '/' . $safeName;
+                            if (move_uploaded_file($file['tmp_name'], $path)) {
+                                $relPath = 'uploads/attachments/' . $safeName;
+                                $hash = @hash_file('sha256', $path) ?: '';
+                                
+                                $attachmentsHasEmpresa = false;
+                                $colA = $mysqli->query("SHOW COLUMNS FROM attachments LIKE 'empresa_id'");
+                                $attachmentsHasEmpresa = ($colA && $colA->num_rows > 0);
+                                
+                                if ($attachmentsHasEmpresa) {
+                                    $stmtA = $mysqli->prepare("INSERT INTO attachments (empresa_id, thread_entry_id, filename, original_filename, mimetype, size, path, hash, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                                    $stmtA->bind_param('iisssiss', $eid, $entry_id, $safeName, $orig, $mime, $size, $relPath, $hash);
+                                } else {
+                                    $stmtA = $mysqli->prepare("INSERT INTO attachments (thread_entry_id, filename, original_filename, mimetype, size, path, hash, created) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+                                    $stmtA->bind_param('isssiss', $entry_id, $safeName, $orig, $mime, $size, $relPath, $hash);
+                                }
+                                $stmtA->execute();
+                                
+                                // Update thread body to reflect purchase order
+                                $updatedMsg = $threadMsg . '<br><strong>Orden de compra</strong>';
+                                $stmtUpdBody = $mysqli->prepare("UPDATE thread_entries SET body = ? WHERE id = ?");
+                                $stmtUpdBody->bind_param('si', $updatedMsg, $entry_id);
+                                $stmtUpdBody->execute();
+                            }
+                        }
+                    }
+                }
+                
+                $stmtUpdTkt = $mysqli->prepare("UPDATE tickets SET updated = NOW() WHERE id = ?");
+                if ($stmtUpdTkt) {
+                    $stmtUpdTkt->bind_param('i', $tid);
+                    $stmtUpdTkt->execute();
+                }
+
+
                 
                 $redirectParams = $_GET;
                 $redirectParams['id'] = $tid;
@@ -233,7 +331,7 @@ if (isset($_SESSION[$replySessionKey]) && is_array($_SESSION[$replySessionKey]))
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do'] === 'reply') {
-    if ($isOrgPeerView) {
+    if ($isOrgPeerView && empty($user['org_tickets_view'])) {
         $reply_error = 'No puedes responder en tickets de otros usuarios.';
     } elseif (!validateCSRF()) {
         $reply_error = 'Token de seguridad inválido';
@@ -298,10 +396,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
 
         if ($reply_error !== '') {
             // No continuar: ya existe un error (ej. adjunto muy grande / demasiados adjuntos)
-        } elseif ($body === '') {
+        } elseif ($body === '' && !$hasFiles) {
             $reply_error = 'El mensaje no puede estar vacío.';
-        } elseif ($hasFiles && $plain === '' && stripos($body, '<img') === false && stripos($body, '<iframe') === false) {
-            $reply_error = 'Debes escribir un mensaje para enviar archivos. Si solo quieres adjuntar, escribe una breve descripción.';
         } elseif (stripos($body, 'data:image/') !== false) {
             $reply_error = 'Las imágenes pegadas dentro del texto no están soportadas. Adjunta la imagen usando la opción de archivos.';
         } elseif (strlen($body) > 500000) {
@@ -313,9 +409,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
             $stmt->bind_param('iiis', $eid, $thread_id, $uid, $body);
             if ($stmt->execute()) {
                 $entry_id = (int) $mysqli->insert_id;
-                $stmtUpdTicket = $mysqli->prepare('UPDATE tickets SET updated = NOW() WHERE id = ? AND user_id = ? AND empresa_id = ?');
+                $stmtUpdTicket = $mysqli->prepare('UPDATE tickets SET updated = NOW() WHERE id = ? AND empresa_id = ?');
                 if ($stmtUpdTicket) {
-                    $stmtUpdTicket->bind_param('iii', $tid, $uid, $eid);
+                    $stmtUpdTicket->bind_param('ii', $tid, $eid);
                     $stmtUpdTicket->execute();
                 }
 
@@ -432,10 +528,10 @@ if (isset($_GET['download']) && is_numeric($_GET['download'])) {
         . "JOIN thread_entries te ON te.id = a.thread_entry_id\n"
         . "JOIN threads th ON th.id = te.thread_id\n"
         . "JOIN tickets tk ON tk.id = th.ticket_id\n"
-        . "WHERE a.id = ? AND te.thread_id = ? AND tk.user_id = ? AND tk.empresa_id = ?\n"
+        . "WHERE a.id = ? AND te.thread_id = ? AND tk.empresa_id = ?\n"
         . "LIMIT 1"
     );
-    $stmt->bind_param('iiii', $aid, $thread_id, $uid, $eid);
+    $stmt->bind_param('iii', $aid, $thread_id, $eid);
     $stmt->execute();
     $att = $stmt->get_result()->fetch_assoc();
     if (!$att) {
@@ -488,6 +584,8 @@ if (isset($_GET['download']) && is_numeric($_GET['download'])) {
         header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
     }
     header('X-Content-Type-Options: nosniff');
+    if (ob_get_length()) ob_clean();
+    flush();
     readfile($full);
     exit;
 }
@@ -574,9 +672,9 @@ function humanSize($bytes) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo html($t['ticket_number']); ?> - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
+    <link rel="stylesheet" href="scp/css/vendor/summernote-lite.min.css">
     <link rel="stylesheet" href="css/client_dark.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/client_dark.css'); ?>">
     <link rel="stylesheet" href="css/client-ticket-view.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/client-ticket-view.css'); ?>">
     <style>
@@ -792,7 +890,7 @@ function humanSize($bytes) {
         }
 
         .ticket-view-entry.user .entry-avatar {
-            background: #fef2f2;
+            background: #eff6ff;
             color: #1e3a8a;
         }
 
@@ -805,7 +903,7 @@ function humanSize($bytes) {
             display: flex;
             flex-direction: column;
             max-width: 800px;
-            width: 100%;
+            flex: 1;
             min-width: 0;
         }
 
@@ -831,10 +929,10 @@ function humanSize($bytes) {
         .ticket-view-entry .author-role {
             font-size: 0.75rem;
             font-weight: 700;
-            color: #ef4444;
-            background: #fef2f2;
+            color: #0f62fe;
+            background: #eff6ff;
             padding: 2px 8px;
-            border-radius: 50rem;
+            border-radius: 12px;
         }
 
         .ticket-view-entry .entry-content {
@@ -843,6 +941,7 @@ function humanSize($bytes) {
             background: #ffffff;
             border: 1px solid #e2e8f0;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+            box-sizing: border-box;
             width: 100%;
             max-width: 100%;
         }
@@ -853,7 +952,7 @@ function humanSize($bytes) {
         }
 
         .ticket-view-entry.staff .entry-content {
-            background: #fef2f2;
+            background: #eff6ff;
             border-color: #dbeafe;
         }
 
@@ -1233,7 +1332,7 @@ function humanSize($bytes) {
         }
         body.dark-mode .org-readonly-notice {
             border-color: #334155;
-            background: #1e1e1e;
+            background: #000000;
         }
         body.dark-mode .org-readonly-notice__icon {
             background: rgba(255, 255, 255, 0.06);
@@ -1424,7 +1523,7 @@ function humanSize($bytes) {
             backdrop-filter: blur(12px);
         }
         body.dark-mode .custom-modal-soft {
-            background-color: #18181b !important;
+            background-color: #000000 !important;
             border-color: #27272a !important;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             background: rgba(24, 24, 27, 0.95) !important;
@@ -1436,7 +1535,7 @@ function humanSize($bytes) {
             color: #a1a1aa !important;
         }
         body.dark-mode .custom-modal-soft .btn-light {
-            background-color: #27272a !important;
+            background-color: #000000 !important;
             border-color: #3f3f46 !important;
             color: #e4e4e7 !important;
         }
@@ -1908,9 +2007,9 @@ function humanSize($bytes) {
                         .profile-dd-icon-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
                         .profile-dd-divider { border-color: #f1f5f9; opacity: 1; margin: 8px 0; }
                         
-                        body.dark-mode .profile-dropdown { background: #1a1a1a; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
+                        body.dark-mode .profile-dropdown { background: #000000; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
                         body.dark-mode .profile-dd-item { color: #cbd5e1; }
-                        body.dark-mode .profile-dd-item:hover { background: #252525; color: #f8fafc; }
+                        body.dark-mode .profile-dd-item:hover { background: #000000; color: #f8fafc; }
                         body.dark-mode .profile-dd-icon-default { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
                         body.dark-mode .profile-dd-icon-success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
                         body.dark-mode .profile-dd-danger { color: #ef4444; }
@@ -1968,8 +2067,15 @@ function humanSize($bytes) {
                     </div>
                     <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Cerrar"></button>
                 </div>
-                <script>
+                 <script>
                     (function(){
+                        if (window.history.replaceState) {
+                            var url = new URL(window.location.href);
+                            if (url.searchParams.has('msg')) {
+                                url.searchParams.delete('msg');
+                                window.history.replaceState({}, document.title, url.pathname + url.search);
+                            }
+                        }
                         setTimeout(function(){
                             var el = document.getElementById('flash-msg-approved');
                             if(el) {
@@ -1982,7 +2088,9 @@ function humanSize($bytes) {
                 </script>
             <?php endif; ?>
             <?php
-            $clientStatusColor = normalizeTicketHexColor((string)($t['status_color'] ?? ''), '#64748b');
+            $effClientStatus = ticketEffectiveStatusDisplay($t['status_name'] ?? '', $t['status_color'] ?? '', $ticketApprovalStatus);
+            $clientDisplayStatusName = (string)($effClientStatus['name'] ?? ($t['status_name'] ?? ''));
+            $clientStatusColor = normalizeTicketHexColor((string)($effClientStatus['color'] ?? ($t['status_color'] ?? '')), '#64748b');
             $clientPriorityColor = normalizeTicketHexColor((string)($t['priority_color'] ?? ''), '#64748b');
             $clientTopicName = trim((string)($t['topic_name'] ?? ''));
             if ($clientTopicName === '') {
@@ -2010,6 +2118,11 @@ function humanSize($bytes) {
                             </div>
                         </div>
                         <div class="client-ticket-hero__actions">
+                            <?php if (!empty($user['org_tickets_view'])): ?>
+                            <a href="ticket_pdf.php?id=<?php echo (int)$t['id']; ?>" class="client-ticket-hero__back" target="_blank" style="margin-right: 8px;">
+                                <i class="bi bi-printer"></i> Imprimir / PDF
+                            </a>
+                            <?php endif; ?>
                             <a href="<?php echo html($viewTicketBackUrl); ?>" class="client-ticket-hero__back">
                                 <i class="bi bi-arrow-left"></i> Volver
                             </a>
@@ -2019,7 +2132,7 @@ function humanSize($bytes) {
 
                 <?php if ($isOrgPeerView && $ticketOwnerName !== ''): ?>
                     <div class="client-ticket-hero__meta">
-                        <i class="bi bi-eye"></i> Consulta de ticket de <?php echo html($ticketOwnerName); ?> · solo lectura
+                        <i class="bi bi-eye"></i> Consulta de ticket de <?php echo html($ticketOwnerName); ?><?php echo empty($user['org_tickets_view']) ? ' · solo lectura' : ''; ?>
                     </div>
                 <?php endif; ?>
             </div>
@@ -2028,7 +2141,7 @@ function humanSize($bytes) {
                 <div class="client-ticket-overview__pills d-md-none">
                     <span class="client-ticket-pill" style="<?php echo html($clientStatusStyle); ?>">
                         <span class="client-ticket-pill__dot" style="<?php echo html($clientStatusDotStyle); ?>;"></span>
-                        <?php echo html($t['status_name']); ?>
+                        <?php echo html($clientDisplayStatusName); ?>
                     </span>
                     <span class="client-ticket-pill" style="<?php echo html($clientPriorityStyle); ?>">
                         <i class="bi bi-flag-fill"></i>
@@ -2068,7 +2181,7 @@ function humanSize($bytes) {
                             <div class="client-ticket-field__value">
                                 <span class="client-ticket-field__badge" style="<?php echo html($clientStatusStyle); ?>">
                                     <span class="client-ticket-pill__dot" style="<?php echo html($clientStatusDotStyle); ?>;"></span>
-                                    <?php echo html($t['status_name']); ?>
+                                    <?php echo html($clientDisplayStatusName); ?>
                                 </span>
                             </div>
                         </div>
@@ -2205,12 +2318,13 @@ function humanSize($bytes) {
                                                             $iconClass = 'bi-file-word text-info';
                                                         }
 
-                                                        $previewUrl = "view-ticket.php?id=" . (int)$tid . "&download=" . (int)$a['id'] . "&inline=1";
+                                                        $sParam = $isSignatureLink ? '&s=' . rawurlencode($sigToken) : '';
+                                                        $previewUrl = "view-ticket.php?id=" . (int)$tid . "&download=" . (int)$a['id'] . "&inline=1&v=2" . $sParam;
                                                     ?>
                                                     <div class="chat-att-item">
                                                         <div class="chat-att-icon"><i class="bi <?php echo $iconClass; ?>"></i></div>
                                                         <div class="chat-att-info">
-                                                            <a href="view-ticket.php?id=<?php echo (int)$t['id']; ?>&download=<?php echo (int)$a['id']; ?>" 
+                                                            <a href="view-ticket.php?id=<?php echo (int)$t['id']; ?>&download=<?php echo (int)$a['id']; ?><?php echo $sParam; ?>" 
                                                                <?php if ($type !== 'unknown'): ?>
                                                                class="att-preview-trigger att-filename" 
                                                                data-preview-url="<?php echo html($previewUrl); ?>"
@@ -2225,7 +2339,7 @@ function humanSize($bytes) {
                                                             ><?php echo html($a['original_filename'] ?? 'archivo'); ?></a>
                                                             <div class="att-size"><?php echo humanSize($a['size'] ?? 0); ?></div>
                                                         </div>
-                                                        <a href="view-ticket.php?id=<?php echo (int)$t['id']; ?>&download=<?php echo (int)$a['id']; ?>" class="chat-att-download" title="Descargar"><i class="bi bi-download"></i></a>
+                                                        <a href="view-ticket.php?id=<?php echo (int)$t['id']; ?>&download=<?php echo (int)$a['id']; ?><?php echo $sParam; ?>" class="chat-att-download" title="Descargar"><i class="bi bi-download"></i></a>
                                                     </div>
                                                 <?php endforeach; ?>
                                             </div>
@@ -2263,12 +2377,14 @@ function humanSize($bytes) {
                             </div>
                         </div>
                         <div class="d-flex gap-2 flex-wrap mt-3 mt-sm-0">
+                            <?php if (!$quoteAlreadySent): ?>
                             <form method="post" style="margin: 0; display: inline-flex;" id="form-aprob-cotizacion">
                                 <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
                                 <input type="hidden" name="action" value="cotizacion">
                                 <button type="button" class="btn btn-sm btn-approval-warn" onclick="showApprovalModal('form-aprob-cotizacion', 'Solicitar Cotización', '¿Confirma que desea solicitar la Cotización?', 'btn-approval-warn', 'bi-file-earmark-text')"><i class="bi bi-file-earmark-text me-1"></i>Cotización</button>
                             </form>
-                            <form method="post" style="margin: 0; display: inline-flex;" id="form-aprob-aprobado">
+                            <?php endif; ?>
+                            <form method="post" style="margin: 0; display: inline-flex;" id="form-aprob-aprobado" enctype="multipart/form-data">
                                 <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
                                 <input type="hidden" name="action" value="aprobado">
                                 <button type="button" class="btn btn-sm btn-approval-success" onclick="showApprovalModal('form-aprob-aprobado', 'Aprobar Solicitud', '¿Confirma que desea APROBAR esta solicitud?', 'btn-approval-success', 'bi-check-circle-fill')"><i class="bi bi-check-circle-fill me-1"></i>Aprobado</button>
@@ -2282,7 +2398,7 @@ function humanSize($bytes) {
                     </div>
                 <?php endif; ?>
 
-                <?php if (!empty($isOrgPeerView)): ?>
+                 <?php if (!empty($isOrgPeerView) && empty($user['org_tickets_view'])): ?>
                     <?php
                     $orgReadonlyOwner = $ticketOwnerName !== '' ? $ticketOwnerName : 'otro usuario';
                     ?>
@@ -2380,8 +2496,70 @@ function humanSize($bytes) {
                 <?php endif; ?>
 
                 <?php if (!empty($t['closed'])): ?>
-                    <div class="alert alert-warning mb-3">Este ticket está cerrado y no admite nuevas respuestas.</div>
+                    <div class="ticket-closed-banner" role="status" aria-label="Ticket cerrado">
+                        <style>
+                        .ticket-closed-banner {
+                            display: flex;
+                            align-items: center;
+                            gap: 14px;
+                            background: #fff;
+                            border: 1px solid #e5e7eb;
+                            border-left: 4px solid #dc2626;
+                            border-radius: 12px;
+                            padding: 14px 18px;
+                            margin-bottom: 16px;
+                            transition: background 0.25s, border-color 0.25s;
+                        }
+                        .ticket-closed-banner__icon {
+                            flex-shrink: 0;
+                            width: 36px;
+                            height: 36px;
+                            background: #dc2626;
+                            border-radius: 10px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: #fff;
+                            font-size: 1rem;
+                            transition: background 0.25s;
+                        }
+                        .ticket-closed-banner__title {
+                            font-weight: 700;
+                            font-size: 0.875rem;
+                            color: #111827;
+                            margin: 0 0 2px;
+                            transition: color 0.25s;
+                        }
+                        .ticket-closed-banner__sub {
+                            font-size: 0.76rem;
+                            color: #6b7280;
+                            margin: 0;
+                            transition: color 0.25s;
+                        }
+                        body.dark-mode .ticket-closed-banner {
+                            background: #0a0a0a;
+                            border-color: #1f1f1f;
+                            border-left-color: #dc2626;
+                        }
+                        body.dark-mode .ticket-closed-banner__icon { background: #dc2626; }
+                        body.dark-mode .ticket-closed-banner__title { color: #f9fafb; }
+                        body.dark-mode .ticket-closed-banner__sub   { color: #6b7280; }
+                        </style>
+
+
+                        <div class="ticket-closed-banner__icon" aria-hidden="true">
+                            <i class="bi bi-lock-fill"></i>
+                        </div>
+                        <div>
+                            <p class="ticket-closed-banner__title">Ticket cerrado — sin nuevas respuestas</p>
+                            <p class="ticket-closed-banner__sub">
+                                <i class="bi bi-calendar-check" aria-hidden="true"></i>
+                                <?php echo !empty($t['closed']) ? 'Cerrado el ' . date('d/m/Y \a \l\a\s h:i A', strtotime($t['closed'])) : 'Ticket resuelto'; ?>
+                            </p>
+                        </div>
+                    </div>
                 <?php else: ?>
+
                     <form method="post" enctype="multipart/form-data">
                         <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
                         <input type="hidden" name="do" value="reply">
@@ -2705,10 +2883,10 @@ function humanSize($bytes) {
     })();
 </script>
 
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/lang/summernote-es-ES.min.js"></script>
+<script src="scp/js/vendor/jquery-3.6.0.min.js"></script>
+<script src="scp/js/vendor/bootstrap-5.3.0.bundle.min.js"></script>
+<script src="scp/js/vendor/summernote-lite.min.js"></script>
+<script src="scp/js/vendor/summernote-es-ES.min.js"></script>
 
 <script>
     (function(){
@@ -3040,20 +3218,29 @@ function humanSize($bytes) {
             }
         });
 
-        // Popup preventivo: adjuntos sin mensaje
+        // Validación frontend: solo bloquear si no hay mensaje Y no hay adjuntos
         var form = document.querySelector('.reply-card form');
         var fileInput = document.getElementById('attachments');
         form && form.addEventListener('submit', function (ev) {
             try {
                 var hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
-                if (!hasFiles) return;
+                if (hasFiles) return; // Con adjuntos, el mensaje es opcional
 
                 var isEmpty = false;
                 try { isEmpty = jQuery('#reply_body').summernote('isEmpty'); } catch (e) {}
                 if (isEmpty) {
                     ev.preventDefault();
+                    // Resetear el botón de envío que pudo haber quedado en estado loading
+                    var replyBtn = document.getElementById('reply-submit-btn');
+                    if (replyBtn) {
+                        var lbl = replyBtn.querySelector('.btn-label');
+                        var ldr = replyBtn.querySelector('.btn-loading');
+                        if (lbl) lbl.classList.remove('d-none');
+                        if (ldr) ldr.classList.add('d-none');
+                        replyBtn.disabled = false;
+                    }
                     window.__showCreativePop && window.__showCreativePop(
-                        'Adjuntaste un archivo, pero el mensaje está vacío. Escribe una breve descripción para poder enviarlo.',
+                        'El mensaje no puede estar vacío si no adjuntas ningún archivo.',
                         'Falta un mensaje'
                     );
                     return false;
@@ -3457,6 +3644,28 @@ document.addEventListener('DOMContentLoaded', function() {
             <span id="approvalModalTitle">Confirmar Acción</span>
         </h5>
         <p id="approvalModalMsg" style="font-size: 0.95rem; color: #64748b; margin: 0; line-height: 1.4;"></p>
+        <div id="modalPurchaseOrderContainer" class="mt-3 text-start" style="display: none;">
+            <label style="font-weight: 800; font-size: 0.82rem; color: #475569; margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.03em;">Orden de Compra (Opcional)</label>
+            <div class="po-upload-zone" id="po-upload-zone" style="border: 2px dashed #cbd5e1; border-radius: 12px; padding: 16px; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s ease;">
+                <input type="file" id="orden_compra_modal" name="orden_compra" style="display: none;">
+                <div class="po-upload-icon" style="font-size: 1.5rem; color: #94a3b8; margin-bottom: 6px;"><i class="bi bi-cloud-arrow-up-fill"></i></div>
+                <div class="po-upload-text" id="po-upload-text" style="font-size: 0.85rem; font-weight: 700; color: #64748b;">Subir Orden de Compra</div>
+                <div class="po-upload-hint" style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">PDF, PNG, JPG o DOC (Idem)</div>
+            </div>
+            <style>
+                body.dark-mode .po-upload-zone {
+                    background: #1e293b !important;
+                    border-color: #475569 !important;
+                }
+                body.dark-mode .po-upload-zone:hover {
+                    border-color: #f87171 !important;
+                }
+                .po-upload-zone:hover {
+                    border-color: #ef4444;
+                    background: #f1f5f9;
+                }
+            </style>
+        </div>
       </div>
       <div class="modal-footer border-0 d-flex flex-nowrap justify-content-center gap-2 pb-3 px-3 px-sm-4">
         <button type="button" class="btn btn-light w-50" style="border-radius: 10px; font-weight: 600; padding: 8px;" data-bs-dismiss="modal">Cancelar</button>
@@ -3472,6 +3681,24 @@ function showApprovalModal(formId, title, msg, btnClass, iconClass) {
     currentApprovalFormId = formId;
     document.getElementById('approvalModalTitle').textContent = title;
     document.getElementById('approvalModalMsg').textContent = msg;
+    
+    // Show/hide purchase order field based on action
+    var poContainer = document.getElementById('modalPurchaseOrderContainer');
+    if (poContainer) {
+        if (formId === 'form-aprob-aprobado') {
+            poContainer.style.display = 'block';
+        } else {
+            poContainer.style.display = 'none';
+            var fileIn = document.getElementById('orden_compra_modal');
+            if (fileIn) {
+                fileIn.value = '';
+                var uploadText = document.getElementById('po-upload-text');
+                if (uploadText) uploadText.innerHTML = 'Subir Orden de Compra';
+                var uploadZone = document.getElementById('po-upload-zone');
+                if (uploadZone) uploadZone.style.borderColor = '#cbd5e1';
+            }
+        }
+    }
     
     var iconEl = document.getElementById('approvalModalIcon');
     iconEl.className = 'bi ' + iconClass;
@@ -3500,10 +3727,40 @@ function showApprovalModal(formId, title, msg, btnClass, iconClass) {
     modal.show();
 }
 
+document.addEventListener('DOMContentLoaded', function() {
+    var fileInput = document.getElementById('orden_compra_modal');
+    var uploadZone = document.getElementById('po-upload-zone');
+    var uploadText = document.getElementById('po-upload-text');
+
+    if (uploadZone && fileInput) {
+        uploadZone.addEventListener('click', function() {
+            fileInput.click();
+        });
+        
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files && fileInput.files.length > 0) {
+                var filename = fileInput.files[0].name;
+                uploadText.innerHTML = '<span style="color: #10b981;"><i class="bi bi-file-earmark-check-fill me-1"></i> ' + filename + '</span>';
+                uploadZone.style.borderColor = '#10b981';
+            } else {
+                uploadText.innerHTML = 'Subir Orden de Compra';
+                uploadZone.style.borderColor = '#cbd5e1';
+            }
+        });
+    }
+});
+
 document.getElementById('approvalModalConfirmBtn').addEventListener('click', function() {
     if (currentApprovalFormId) {
         var form = document.getElementById(currentApprovalFormId);
         if (form) {
+            // If it's the approved form, move the file input into it
+            if (currentApprovalFormId === 'form-aprob-aprobado') {
+                var fileInput = document.getElementById('orden_compra_modal');
+                if (fileInput) {
+                    form.appendChild(fileInput);
+                }
+            }
             form.submit();
         }
     }

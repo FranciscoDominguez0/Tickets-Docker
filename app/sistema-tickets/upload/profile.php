@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * PERFIL USUARIO
  * Editar información del usuario
@@ -89,8 +89,8 @@ if ($_POST) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mi Perfil - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
     <link rel="stylesheet" href="css/client_dark.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/client_dark.css'); ?>">
     <style>
         body {
@@ -504,9 +504,9 @@ if ($_POST) {
                         .profile-dd-icon-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
                         .profile-dd-divider { border-color: #f1f5f9; opacity: 1; margin: 8px 0; }
                         
-                        body.dark-mode .profile-dropdown { background: #1a1a1a; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
+                        body.dark-mode .profile-dropdown { background: #000000; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
                         body.dark-mode .profile-dd-item { color: #cbd5e1; }
-                        body.dark-mode .profile-dd-item:hover { background: #252525; color: #f8fafc; }
+                        body.dark-mode .profile-dd-item:hover { background: #000000; color: #f8fafc; }
                         body.dark-mode .profile-dd-icon-default { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
                         body.dark-mode .profile-dd-icon-success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
                         body.dark-mode .profile-dd-danger { color: #ef4444; }
@@ -643,7 +643,7 @@ if ($_POST) {
             Derechos de autor &copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars(getAppSetting('company.name', 'Vigitec Panama')); ?> - Sistema de Tickets - Todos los derechos reservados.
         </p>
     </footer>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="scp/js/vendor/bootstrap-5.3.0.bundle.min.js"></script>
     <script>
         (function(){
             var POLL_MS = 12000;

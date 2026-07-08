@@ -13,6 +13,12 @@ services:
     depends_on:
       - db
 
+    volumes:
+      # Adjuntos y PDFs de tickets
+      - ./app/sistema-tickets/upload/uploads/attachments:/var/www/html/sistema-tickets/upload/uploads/attachments
+      # Firmas digitales
+      - ./app/sistema-tickets/firmas:/var/www/html/sistema-tickets/firmas
+
   db:
     image: mysql:8.0
     container_name: mysql_app

@@ -22,14 +22,15 @@ $orgTicketsTotalPages = max(1, (int)($orgTicketsTotalPages ?? 1));
 $orgListPerPage = max(1, (int)($orgListPerPage ?? 10));
 $orgUsersPaginationParams = '&view=org&org_id=' . (int)$orgExplorerOrgId;
 $orgTicketsPaginationParams = '&view=org&org_id=' . (int)$orgExplorerOrgId . '&member_id=' . (int)$orgExplorerMemberId;
-$orgExplorerListMode = (isset($orgExplorerListMode) && (string)$orgExplorerListMode === 'all') ? 'all' : 'users';
+$orgExplorerListMode = (isset($orgExplorerListMode) && in_array((string)$orgExplorerListMode, ['all', 'quotes'], true)) ? (string)$orgExplorerListMode : 'users';
 $orgAllTicketsTotal = (int)($orgAllTicketsTotal ?? 0);
 $orgAllTicketsPage = max(1, (int)($orgAllTicketsPage ?? 1));
 $orgAllTicketsTotalPages = max(1, (int)($orgAllTicketsTotalPages ?? 1));
 $orgExplorerAllTickets = isset($orgExplorerAllTickets) && is_array($orgExplorerAllTickets) ? $orgExplorerAllTickets : [];
 $orgMonthQuery = isset($ticketMonthQuery) ? (string)$ticketMonthQuery : '';
-$orgAllTicketsPaginationParams = '&view=org&org_id=' . (int)$orgExplorerOrgId . '&list=all' . $orgMonthQuery;
-$orgTicketsPaginationParams .= $orgMonthQuery;
+$orgSearchQuery = !empty($_GET['q']) ? '&q=' . urlencode(trim($_GET['q'])) : '';
+$orgAllTicketsPaginationParams = '&view=org&org_id=' . (int)$orgExplorerOrgId . '&list=all' . $orgMonthQuery . $orgSearchQuery;
+$orgTicketsPaginationParams .= $orgMonthQuery . $orgSearchQuery;
 $orgOrgBaseUrl = 'tickets.php?view=org&amp;org_id=' . (int)$orgExplorerOrgId;
 $orgOrgBaseUrlAll = $orgOrgBaseUrl . '&amp;list=all' . str_replace('&', '&amp;', $orgMonthQuery);
 $orgCssV = (int)@filemtime(__DIR__ . '/../css/client-org-explorer.css');
@@ -39,6 +40,18 @@ if ($orgCssV <= 0) {
 $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
 ?>
 <link rel="stylesheet" href="css/client-org-explorer.css?v=<?php echo $orgCssV; ?>">
+<style>
+    /* CSS para soportar el cambio dinámico de modo oscuro en la vista de cotizaciones */
+    .quote-title { color: #212529; }
+    .quote-date { color: #6c757d; }
+    .quote-icon { color: #6c757d; }
+    
+    body.dark-mode .quote-title { color: #f8f9fa !important; }
+    body.dark-mode .quote-date { color: #adb5bd !important; }
+    body.dark-mode .quote-icon { color: #f8f9fa !important; }
+    body.dark-mode .org-explorer-row.unread-item { background: #212529 !important; border-color: #0d6efd !important; }
+    .org-explorer-row.unread-item { background: #f8f9fa; border-color: #0d6efd; }
+</style>
 
 <div class="org-explorer-wrap">
     <div class="page-header org-explorer-header" style="margin-top: 0;">
@@ -106,11 +119,14 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
 
         <?php elseif ($orgExplorerMemberId <= 0): ?>
             <div class="org-view-tabs">
-                <a href="<?php echo $orgOrgBaseUrl; ?>" class="org-view-tab <?php echo $orgExplorerListMode === 'users' ? 'active' : ''; ?>">
+                <a href="<?php echo $orgOrgBaseUrl; ?>&amp;list=users" class="org-view-tab <?php echo $orgExplorerListMode === 'users' ? 'active' : ''; ?>">
                     <i class="bi bi-people"></i> Por usuario
                 </a>
                 <a href="<?php echo $orgOrgBaseUrlAll; ?>" class="org-view-tab <?php echo $orgExplorerListMode === 'all' ? 'active' : ''; ?>">
                     <i class="bi bi-collection"></i> Todos los tickets
+                </a>
+                <a href="<?php echo $orgOrgBaseUrl; ?>&amp;list=quotes" class="org-view-tab <?php echo $orgExplorerListMode === 'quotes' ? 'active' : ''; ?>">
+                    <i class="bi bi-file-earmark-text"></i> Cotizaciones
                 </a>
             </div>
 
@@ -126,11 +142,21 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                 $ticketMonthPickerCompact = true;
                 ?>
                 <div class="org-list-section">
-                    <div class="org-panel-head org-panel-head--tickets">
+                    <div class="org-panel-head org-panel-head--tickets" style="flex-wrap: wrap; gap: 12px;">
                         <div class="org-panel-head__left">
                             <h3><i class="bi bi-ticket-perforated text-danger me-1"></i> Todos los tickets</h3>
                         </div>
-                        <div class="org-panel-head__actions">
+                        <div class="org-panel-head__actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                            <form method="GET" action="tickets.php" class="d-flex" style="max-width: 250px; margin: 0;">
+                                <input type="hidden" name="view" value="org">
+                                <input type="hidden" name="org_id" value="<?php echo $orgExplorerOrgId; ?>">
+                                <input type="hidden" name="list" value="all">
+                                <?php if (!empty($_GET['month'])): ?>
+                                <input type="hidden" name="month" value="<?php echo html($_GET['month']); ?>">
+                                <?php endif; ?>
+                                <input type="text" name="q" class="form-control form-control-sm" placeholder="Buscar N° de ticket..." value="<?php echo html($_GET['q'] ?? ''); ?>" style="border-radius: 6px 0 0 6px; box-shadow: none;">
+                                <button type="submit" class="btn btn-secondary btn-sm" style="border-radius: 0 6px 6px 0;"><i class="bi bi-search"></i></button>
+                            </form>
                             <?php require __DIR__ . '/ticket-month-filter.inc.php'; ?>
                             <span class="org-count-badge"><?php echo $orgAllTicketsTotal; ?></span>
                         </div>
@@ -159,6 +185,9 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                                 if ($orgMonthQuery !== '') {
                                     $href .= $orgMonthQuery;
                                 }
+                                if ($orgSearchQuery !== '') {
+                                    $href .= $orgSearchQuery;
+                                }
                                 ?>
                                 <a href="<?php echo html($href); ?>" class="list-group-item list-group-item-action org-explorer-row org-explorer-row-ticket">
                                     <span class="org-ticket-num">#<?php echo html((string)($tk['ticket_number'] ?? '')); ?></span>
@@ -175,7 +204,7 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                                     </span>
                                     <?php if (($tk['approval_status'] ?? '') === 'pending'): ?>
                                         <span class="org-status-badge" style="background: #fef3c7; color: #d97706; border: 1px solid #fcd34d;">
-                                            <i class="bi bi-shield-lock-fill"></i> Revisión Pendiente
+                                            <i class="bi bi-shield-lock-fill"></i> Pendiente aprobación
                                         </span>
                                     <?php else: ?>
                                         <?php if (!empty($tk['status_name'])): ?>
@@ -197,6 +226,75 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                             <?php echo renderModernPagination($orgAllTicketsPage, $orgAllTicketsTotalPages, $orgAllTicketsPaginationParams, 'oat'); ?>
                         <?php endif; ?>
                 <?php endif; ?>
+                </div>
+
+            <?php elseif ($orgExplorerListMode === 'quotes'): ?>
+                <div class="org-list-section">
+                    <div class="org-panel-head org-panel-head--tickets" style="flex-wrap: wrap;">
+                        <div class="org-panel-head__left">
+                            <h3><i class="bi bi-file-earmark-text text-danger me-1"></i> Cotizaciones</h3>
+                        </div>
+                        <div class="org-panel-head__actions d-flex align-items-center gap-2">
+                            <span class="org-count-badge"><?php echo $orgQuotesTotal; ?></span>
+                            <!-- Botón de solicitar removido para el jefe -->
+                        </div>
+                    </div>
+
+                    <?php if ($orgQuotesTotal <= 0): ?>
+                        <div class="org-empty">
+                            <i class="bi bi-file-earmark-x" aria-hidden="true"></i>
+                            <p class="text-muted mb-0">No hay cotizaciones para esta organización.</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="list-group list-group-flush org-explorer-list">
+                            <?php foreach ($orgExplorerQuotes as $doc): ?>
+                                <?php
+                                $isQuote = ($doc['doc_type'] === 'quote');
+                                $isUnread = (!$isQuote && empty($doc['is_read']));
+                                
+                                if ($isQuote) {
+                                    $statusColors = [
+                                        'draft'    => ['color' => '#94a3b8', 'label' => 'Borrador'],
+                                        'pending'  => ['color' => '#64748b', 'label' => 'Pendiente'],
+                                        'requested'=> ['color' => '#eab308', 'label' => 'Solicitada'],
+                                        'answered' => ['color' => '#3b82f6', 'label' => 'En Revisión'],
+                                        'accepted' => ['color' => '#22c55e', 'label' => 'Aceptada'],
+                                        'rejected' => ['color' => '#ef4444', 'label' => 'Rechazada']
+                                    ];
+                                    $st = $statusColors[$doc['status']] ?? $statusColors['draft'];
+                                } else {
+                                    $st = ['color' => '#64748b', 'label' => 'Informe'];
+                                }
+                                
+                                $href = $isQuote ? "view-quote.php?id=" . $doc['id'] : "informe-jefe.php?id=" . $doc['id'];
+                                $icon = $isQuote ? "bi-file-earmark-text" : "bi-megaphone";
+                                $unreadClass = $isUnread ? 'unread-item border-primary' : '';
+                                ?>
+                                <a href="<?php echo $href; ?>" class="list-group-item list-group-item-action org-explorer-row d-flex align-items-center flex-wrap gap-3 <?php echo $unreadClass; ?>" style="<?php echo $isUnread ? 'border-left: 4px solid #ef4444 !important;' : ''; ?>">
+                                    <span class="org-ticket-num d-flex flex-column align-items-center justify-content-center" style="min-width:55px; text-align:center;">
+                                        <i class="bi <?php echo $icon; ?> fs-5 quote-icon"></i>
+                                        <span style="font-size: 0.75rem; font-weight: 800; margin-top: 2px;">#<?php echo $doc['id']; ?></span>
+                                    </span>
+                                    <div class="flex-grow-1" style="min-width:200px;">
+                                        <div class="fw-bold mb-1 quote-title"><?php echo html($doc['subject'] ?: 'Sin título'); ?></div>
+                                        <div class="small quote-date">
+                                            <i class="bi bi-calendar3 me-1"></i> <?php echo html(date('d/m/Y h:i A', strtotime($doc['created_at']))); ?>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <span class="badge rounded-pill" style="background-color: <?php echo $st['color']; ?>1A; color: <?php echo $st['color']; ?>; border: 1px solid <?php echo $st['color']; ?>33; font-weight: 600; padding: 0.5em 0.8em; letter-spacing: 0.02em;">
+                                            <?php echo $st['label']; ?>
+                                        </span>
+                                    </div>
+                                    <span class="org-explorer-row-cta btn-org-primary ms-2"><i class="bi bi-eye"></i> Ver</span>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php if ($orgQuotesTotalPages > 1): ?>
+                            <?php $orgQuotesPaginationParams = '&view=org&org_id=' . (int)$orgExplorerOrgId . '&list=quotes'; ?>
+                            <?php echo renderModernPagination($orgQuotesPage, $orgQuotesTotalPages, $orgQuotesPaginationParams, 'oqp'); ?>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
 
             <?php elseif ($orgUsersTotal <= 0): ?>
@@ -255,7 +353,7 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
             $ticketMonthPickerCompact = true;
             ?>
             <div class="org-list-section">
-                <div class="org-panel-head org-panel-head--tickets">
+                <div class="org-panel-head org-panel-head--tickets" style="flex-wrap: wrap; gap: 12px;">
                     <div class="org-panel-head__left">
                         <h3><i class="bi bi-ticket-perforated text-danger me-1"></i> Tickets</h3>
                         <?php if ($orgExplorerMemberName !== ''): ?>
@@ -267,7 +365,17 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                             </div>
                         <?php endif; ?>
                     </div>
-                    <div class="org-panel-head__actions">
+                    <div class="org-panel-head__actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <form method="GET" action="tickets.php" class="d-flex" style="max-width: 250px; margin: 0;">
+                            <input type="hidden" name="view" value="org">
+                            <input type="hidden" name="org_id" value="<?php echo $orgExplorerOrgId; ?>">
+                            <input type="hidden" name="member_id" value="<?php echo $orgExplorerMemberId; ?>">
+                            <?php if (!empty($_GET['month'])): ?>
+                            <input type="hidden" name="month" value="<?php echo html($_GET['month']); ?>">
+                            <?php endif; ?>
+                            <input type="text" name="q" class="form-control form-control-sm" placeholder="Buscar N° de ticket..." value="<?php echo html($_GET['q'] ?? ''); ?>" style="border-radius: 6px 0 0 6px; box-shadow: none;">
+                            <button type="submit" class="btn btn-secondary btn-sm" style="border-radius: 0 6px 6px 0;"><i class="bi bi-search"></i></button>
+                        </form>
                         <?php require __DIR__ . '/ticket-month-filter.inc.php'; ?>
                         <span class="org-count-badge"><?php echo $orgTicketsTotal; ?></span>
                     </div>
@@ -288,6 +396,9 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
                             }
                             if ($orgMonthQuery !== '') {
                                 $href .= $orgMonthQuery;
+                            }
+                            if ($orgSearchQuery !== '') {
+                                $href .= $orgSearchQuery;
                             }
                             ?>
                             <a href="<?php echo html($href); ?>" class="list-group-item list-group-item-action org-explorer-row org-explorer-row-ticket">
@@ -324,5 +435,36 @@ $orgLoggedUserId = (int)($orgLoggedUserId ?? ($_SESSION['user_id'] ?? 0));
             <?php endif; ?>
             </div>
         <?php endif; ?>
+    </div>
+</div>
+
+<!-- Modal Solicitar Cotización -->
+<div class="modal fade" id="newQuoteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="tickets.php?view=org&org_id=<?php echo $orgExplorerOrgId; ?>&list=quotes" class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+            <div class="modal-header bg-light border-bottom-0" style="border-radius: 16px 16px 0 0;">
+                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-file-earmark-plus text-danger me-2"></i>Solicitar Cotización</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
+                <input type="hidden" name="action_type" value="quote_action">
+                <input type="hidden" name="quote_action_name" value="create">
+                <input type="hidden" name="org_id" value="<?php echo $orgExplorerOrgId; ?>">
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted small text-uppercase">Título del Servicio/Producto</label>
+                    <input type="text" name="title" class="form-control form-control-lg bg-light" placeholder="Ej. Instalación de Red..." required style="border-radius: 12px;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-muted small text-uppercase">Descripción / Detalles Adicionales</label>
+                    <textarea name="description" class="form-control bg-light" rows="4" placeholder="Describe lo que necesitas..." style="border-radius: 12px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-top-0 pt-0 pb-4 px-4">
+                <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm">Enviar Solicitud</button>
+            </div>
+        </form>
     </div>
 </div>

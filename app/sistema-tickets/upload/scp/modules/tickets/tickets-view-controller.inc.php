@@ -19,19 +19,11 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     }
 
     // Cargar ticket con usuario, estado, prioridad, departamento, asignado
-    $hasTopicCol = false;
-    $hasTopicsTable = false;
-    $c = $mysqli->query("SHOW COLUMNS FROM tickets LIKE 'topic_id'");
-    if ($c && $c->num_rows > 0) $hasTopicCol = true;
-    $t = $mysqli->query("SHOW TABLES LIKE 'help_topics'");
-    if ($t && $t->num_rows > 0) $hasTopicsTable = true;
+    $hasTopicCol = true;
+    $hasTopicsTable = true;
 
-    $topicSelect = $hasTopicCol && $hasTopicsTable
-        ? ", ht.name AS topic_name"
-        : "";
-    $topicJoin = $hasTopicCol && $hasTopicsTable
-        ? " LEFT JOIN help_topics ht ON ht.id = t.topic_id"
-        : "";
+    $topicSelect = ", ht.name AS topic_name";
+    $topicJoin = " LEFT JOIN help_topics ht ON ht.id = t.topic_id";
 
     $stmt = $mysqli->prepare(
         "SELECT t.*, u.firstname AS user_first, u.lastname AS user_last, u.email AS user_email, u.address AS user_address, u.latitude AS user_latitude, u.longitude AS user_longitude,
@@ -40,6 +32,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
          p.name AS priority_name, p.color AS priority_color,
           (CASE WHEN tr.id IS NOT NULL THEN 1 ELSE 0 END) AS has_report,
           tr.billing_status,
+          (SELECT status FROM ticket_approvals WHERE ticket_id = t.id ORDER BY id DESC LIMIT 1) AS approval_status,
           tr.final_price AS report_final_price"
           . $topicSelect .
         " FROM tickets t
@@ -59,8 +52,9 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     if ($ticketView) {
         $canViewAll = roleHasPermission('ticket.view_all');
         $isAssignedToMe = (int)($ticketView['staff_id'] ?? 0) === (int)($_SESSION['staff_id'] ?? 0);
-        // Allow access if: can view all, is assigned to me, OR has any ticket action permission
-        $canActOnTickets = $canViewAll || $isAssignedToMe
+        $isSuperadmin = ((string)($_SESSION['staff_role'] ?? '') === 'superadmin' || getCurrentStaffRoleName() === 'superadmin' || roleHasPermission('admin.access'));
+        // Allow access if: superadmin, can view all, is assigned to me, OR has any ticket action permission
+        $canActOnTickets = $isSuperadmin || $canViewAll || $isAssignedToMe
             || roleHasPermission('ticket.edit')
             || roleHasPermission('ticket.assign')
             || roleHasPermission('ticket.reply')
@@ -85,18 +79,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     // Acción: Solicitar firma del cliente
     if ($ticketView && isset($_GET['action']) && $_GET['action'] === 'request_signature') {
         if (roleHasPermission('ticket.close')) {
-            // Asegurar que las columnas existan
-            try {
-                if (!dbColumnExists('tickets', 'signature_token')) {
-                    $mysqli->query("ALTER TABLE tickets ADD COLUMN signature_token VARCHAR(64) NULL");
-                }
-            } catch (Throwable $e) {}
-            
-            try {
-                if (!dbColumnExists('tickets', 'signature_requested')) {
-                    $mysqli->query("ALTER TABLE tickets ADD COLUMN signature_requested TINYINT(1) DEFAULT 0");
-                }
-            } catch (Throwable $e) {}
+            // Las columnas signature_token y signature_requested ya existen en la tabla tickets en producción.
 
             $token = bin2hex(random_bytes(16));
             $stmtUpd = $mysqli->prepare("UPDATE tickets SET signature_requested = 1, signature_token = ? WHERE id = ? AND empresa_id = ?");
@@ -292,6 +275,8 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                 header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
             }
             header('X-Content-Type-Options: nosniff');
+            if (ob_get_length()) ob_clean();
+            flush();
             readfile($full);
             exit;
         }
@@ -335,7 +320,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
         // Acciones rápidas: estado, asignar, eliminar, etc.
         $action = $_GET['action'] ?? $_POST['action'] ?? null;
         $csrfOk = true;
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['update_support_times', 'request_approval', 'owner', 'block_email', 'delete', 'merge', 'link', 'collab_add', 'transfer', 'priority_update', 'edit_entry', 'delete_entry', 'referral_add'], true)) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['send_executive_quote', 'update_support_times', 'request_approval', 'owner', 'block_email', 'delete', 'merge', 'link', 'collab_add', 'transfer', 'priority_update', 'edit_entry', 'delete_entry', 'referral_add'], true)) {
             $csrfOk = isset($_POST['csrf_token']) && Auth::validateCSRF($_POST['csrf_token']);
         }
         if ($action !== null && isset($_SESSION['staff_id']) && $csrfOk) {
@@ -459,6 +444,86 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     notifyStatusChangeToAdminRecipients($tid, 'Resuelto');
                 }
 
+                // Si cambió a Retenido (id=6), notificar al creador y a su jefe
+                if ($ok && $sid === 6 && (int)($ticketView['status_id'] ?? 0) !== 6) {
+                    $ticketNo = (string)($ticketView['ticket_number'] ?? ('#' . $tid));
+                    $ticketSubject = (string)($ticketView['subject'] ?? '');
+                    
+                    $subjRetenido = '[Ticket Retenido] ' . $ticketNo . ' - ' . $ticketSubject;
+                    $bodyHtmlRetenido = '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;margin:0 auto;">'
+                        . '<h2 style="margin:0 0 10px;color:#e74c3c;">Ticket Retenido</h2>'
+                        . '<p>Estimado usuario, su ticket ha sido puesto en estado Retenido temporalmente.</p>'
+                        . '<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:14px; border-radius:10px; margin-top:14px;">'
+                        . '<p style="margin:0 0 8px;"><strong>ID del Ticket:</strong> ' . html($ticketNo) . '</p>'
+                        . '<p style="margin:0;"><strong>Asunto:</strong> ' . html($ticketSubject) . '</p>'
+                        . '</div>'
+                        . '<p style="margin-top:14px;color:#64748b;font-size:12px;">' . html((string)(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets')) . '</p>'
+                        . '</div>';
+                    $bodyTextRetenido = "Estimado usuario, su ticket ha sido puesto en estado Retenido temporalmente.\n\n"
+                        . "ID del Ticket: $ticketNo\n"
+                        . "Asunto: $ticketSubject";
+
+                    // 1. Notificar al creador del ticket
+                    $toClient = trim((string)($ticketView['user_email'] ?? ''));
+                    if ($toClient !== '' && filter_var($toClient, FILTER_VALIDATE_EMAIL)) {
+                        if (function_exists('enqueueEmailJob')) {
+                            enqueueEmailJob($toClient, $subjRetenido, $bodyHtmlRetenido, $bodyTextRetenido, [
+                                'empresa_id' => (int)$eid,
+                                'context_type' => 'ticket_retenido_client',
+                                'context_id' => (int)$tid,
+                            ]);
+                        } else {
+                            Mailer::send($toClient, $subjRetenido, $bodyHtmlRetenido, $bodyTextRetenido);
+                        }
+                    }
+
+                    // 2. Notificar al jefe de la organización
+                    $clientFullName = trim((string)($ticketView['user_first'] ?? '') . ' ' . (string)($ticketView['user_last'] ?? ''));
+                    if ($clientFullName === '') $clientFullName = 'un miembro de su organización';
+
+                    $subjBossRetenido = '[Ticket Retenido] ' . $ticketNo . ' - ' . $ticketSubject;
+                    $bodyHtmlBossRetenido = '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;margin:0 auto;">'
+                        . '<h2 style="margin:0 0 10px;color:#e74c3c;">Ticket Retenido</h2>'
+                        . '<p>Le informamos que el ticket de <strong>' . html($clientFullName) . '</strong> ha sido puesto en estado Retenido temporalmente.</p>'
+                        . '<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:14px; border-radius:10px; margin-top:14px;">'
+                        . '<p style="margin:0 0 8px;"><strong>ID del Ticket:</strong> ' . html($ticketNo) . '</p>'
+                        . '<p style="margin:0;"><strong>Asunto:</strong> ' . html($ticketSubject) . '</p>'
+                        . '</div>'
+                        . '<p style="margin-top:14px;color:#64748b;font-size:12px;">' . html((string)(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets')) . '</p>'
+                        . '</div>';
+                    $bodyTextBossRetenido = "Le informamos que el ticket de $clientFullName ha sido puesto en estado Retenido temporalmente.\n\n"
+                        . "ID del Ticket: $ticketNo\n"
+                        . "Asunto: $ticketSubject";
+
+                    $stmtBoss = $mysqli->prepare("SELECT u.email FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = (SELECT organization_id FROM user_organizations WHERE user_id = ? LIMIT 1) AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1");
+                    if ($stmtBoss) {
+                        $stmtBoss->bind_param('ii', $ticketView['user_id'], $eid);
+                        if ($stmtBoss->execute()) {
+                            $bossRow = $stmtBoss->get_result()->fetch_assoc();
+                            if ($bossRow) {
+                                $bossEmail = trim((string)($bossRow['email'] ?? ''));
+                                if ($bossEmail !== '' && filter_var($bossEmail, FILTER_VALIDATE_EMAIL)) {
+                                    if (function_exists('enqueueEmailJob')) {
+                                        enqueueEmailJob($bossEmail, $subjBossRetenido, $bodyHtmlBossRetenido, $bodyTextBossRetenido, [
+                                            'empresa_id' => (int)$eid,
+                                            'context_type' => 'ticket_retenido_boss',
+                                            'context_id' => (int)$tid,
+                                        ]);
+                                    } else {
+                                        Mailer::send($bossEmail, $subjBossRetenido, $bodyHtmlBossRetenido, $bodyTextBossRetenido);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (function_exists('triggerEmailQueueWorkerAsync')) {
+                        triggerEmailQueueWorkerAsync();
+                    }
+                    addLog('ticket_retenido_email', 'Notificación Retenido enviada al creador y jefe', 'ticket', $tid);
+                    notifyStatusChangeToAdminRecipients($tid, 'Retenido');
+                }
+
                 // Si se cierra (id=5 u otro cierre), notificar
                 if ($ok && $isClosingStatus && (int)($ticketView['status_id'] ?? 0) !== $sid) {
                     $labelNotif = ($statusLabel !== '') ? $statusLabel : 'Cerrado';
@@ -543,15 +608,8 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
 
                     // Correo a agentes configurados en notificaciones
                     $adminRecipients = [];
-                    $hasRecipientsTable = $mysqli->query("SHOW TABLES LIKE 'notification_recipients'");
-                    if ($hasRecipientsTable && $hasRecipientsTable->num_rows > 0) {
-                        $staffHasEmpresa = false;
-                        try {
-                            $chk = $mysqli->query("SHOW COLUMNS FROM staff LIKE 'empresa_id'");
-                            $staffHasEmpresa = ($chk && $chk->num_rows > 0);
-                        } catch (Throwable $e) {
-                            $staffHasEmpresa = false;
-                        }
+                    if (dbTableExists('notification_recipients')) {
+                        $staffHasEmpresa = dbColumnExists('staff', 'empresa_id');
 
                         $sqlAdmin = "SELECT s.email FROM notification_recipients nr INNER JOIN staff s ON s.id = nr.staff_id WHERE nr.empresa_id = ? AND s.is_active = 1";
                         if ($staffHasEmpresa) {
@@ -662,30 +720,42 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     }
                 }
             } elseif ($action === 'request_approval') {
-                // Solicitar revisión del jefe
-                $stmtBoss = $mysqli->prepare("SELECT u.id, u.email, u.firstname, u.lastname FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = (SELECT organization_id FROM user_organizations WHERE user_id = ? LIMIT 1) AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1");
-                if ($stmtBoss) {
-                    $stmtBoss->bind_param('ii', $ticketView['user_id'], $eid);
-                    $stmtBoss->execute();
-                    $resBoss = $stmtBoss->get_result();
-                    if ($bossRow = $resBoss->fetch_assoc()) {
-                        // Insertar en ticket_approvals
-                        $staffId = (int)$_SESSION['staff_id'];
-                        $stmtIns = $mysqli->prepare("INSERT INTO ticket_approvals (ticket_id, requested_by_staff_id, status, created_at) VALUES (?, ?, 'pending', NOW())");
-                        if ($stmtIns) {
-                            $stmtIns->bind_param('ii', $tid, $staffId);
-                            $stmtIns->execute();
+                requireRolePermission('ticket.edit', 'tickets.php?id=' . $tid);
+                $msg = 'approval_error';
+
+                $stmtPending = $mysqli->prepare("SELECT id FROM ticket_approvals WHERE ticket_id = ? AND status = 'pending' LIMIT 1");
+                $hasPendingApproval = false;
+                if ($stmtPending) {
+                    $stmtPending->bind_param('i', $tid);
+                    if ($stmtPending->execute()) {
+                        $hasPendingApproval = (bool)$stmtPending->get_result()->fetch_assoc();
+                    }
+                }
+                if ($hasPendingApproval) {
+                    $msg = 'approval_already_pending';
+                } else {
+                    $stmtBoss = $mysqli->prepare("SELECT u.id, u.email, u.firstname, u.lastname FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = (SELECT organization_id FROM user_organizations WHERE user_id = ? LIMIT 1) AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1");
+                    $bossRow = null;
+                    if ($stmtBoss) {
+                        $stmtBoss->bind_param('ii', $ticketView['user_id'], $eid);
+                        if ($stmtBoss->execute()) {
+                            $bossRow = $stmtBoss->get_result()->fetch_assoc();
                         }
-                        
-                        // Enviar correo al jefe
-                        $bossEmail = $bossRow['email'];
-                        if (filter_var($bossEmail, FILTER_VALIDATE_EMAIL)) {
+                    }
+
+                    if (!$bossRow) {
+                        $msg = 'approval_no_manager';
+                    } else {
+                        $bossEmail = trim((string)($bossRow['email'] ?? ''));
+                        if ($bossEmail === '' || !filter_var($bossEmail, FILTER_VALIDATE_EMAIL)) {
+                            $msg = 'approval_no_email';
+                        } else {
                             $ticketNo = $ticketView['ticket_number'];
                             $bossName = trim($bossRow['firstname'] . ' ' . $bossRow['lastname']);
                             $subjBoss = "[Revisión requerida] Ticket #" . $ticketNo . " requiere autorización";
-                            
+
                             $orgPortalUrl = rtrim((string)(defined('APP_URL') ? APP_URL : ''), '/') . '/upload/view-ticket.php?from=org&id=' . $tid;
-                            
+
                             $bossBodyHtml = '<div style="font-family: Segoe UI, sans-serif; max-width: 700px; margin: 0 auto;">'
                                 . '<h2 style="color:#1e3a5f; margin: 0 0 8px;">Autorización Requerida</h2>'
                                 . '<p style="color:#475569; margin: 0 0 12px;">Estimado/a <strong>' . htmlspecialchars($bossName) . '</strong>, un agente requiere su revisión y autorización ejecutiva para proceder con el siguiente ticket:</p>'
@@ -696,25 +766,160 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                                 . '<p style="margin: 14px 0 0;"><a href="' . htmlspecialchars($orgPortalUrl) . '" style="display:inline-block; background:#2563eb; color:#fff; padding:10px 16px; text-decoration:none; border-radius:8px;">Revisar y Autorizar</a></p>'
                                 . '<p style="color:#94a3b8; font-size:12px; margin-top: 14px;">' . htmlspecialchars(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets') . '</p>'
                                 . '</div>';
-                            
+
                             $bossBodyText = "Autorización Requerida\n\nTicket: #" . $ticketNo . "\nAsunto: " . $ticketView['subject'] . "\n\nPor favor revise y autorice este ticket accediendo al siguiente enlace:\n" . $orgPortalUrl;
-                            
+
+                            $emailOk = false;
                             if (function_exists('enqueueEmailJob')) {
-                                enqueueEmailJob($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText, [
+                                $emailOk = enqueueEmailJob($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText, [
                                     'empresa_id' => (int)$eid,
                                     'context_type' => 'ticket_approval_request',
                                     'context_id' => (int)$tid,
                                 ]);
-                                if (function_exists('triggerEmailQueueWorkerAsync')) {
+                                if ($emailOk && function_exists('triggerEmailQueueWorkerAsync')) {
                                     triggerEmailQueueWorkerAsync();
                                 }
                             } else {
-                                Mailer::send($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText);
+                                $emailOk = Mailer::send($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText);
+                            }
+
+                            if ($emailOk) {
+                                $staffId = (int)$_SESSION['staff_id'];
+                                $stmtIns = $mysqli->prepare("INSERT INTO ticket_approvals (ticket_id, requested_by_staff_id, status, created_at) VALUES (?, ?, 'pending', NOW())");
+                                if ($stmtIns) {
+                                    $stmtIns->bind_param('ii', $tid, $staffId);
+                                    $stmtIns->execute();
+                                }
+                                addLog('approval_requested', 'Solicitud de aprobación enviada al jefe de la organización (' . $bossEmail . ')', 'ticket', $tid, 'staff', $staffId);
+                                $msg = 'approval_requested';
+                            } else {
+                                $msg = 'approval_email_failed';
                             }
                         }
                     }
                 }
-                $msg = 'approval_requested';
+                header("Location: tickets.php?id=$tid&msg=$msg");
+                exit;
+            } elseif ($action === 'send_executive_quote') {
+                requireRolePermission('ticket.reply', 'tickets.php?id=' . $tid);
+                $msg = 'quote_error';
+                
+                if (!empty($_FILES['quote_pdf']['name']) && $_FILES['quote_pdf']['error'] === UPLOAD_ERR_OK) {
+                    $staffId = (int)$_SESSION['staff_id'];
+                    $quoteMsg = trim($_POST['quote_msg'] ?? '');
+                    
+                    $tmpName = $_FILES['quote_pdf']['tmp_name'];
+                    $origName = $_FILES['quote_pdf']['name'];
+                    $size = $_FILES['quote_pdf']['size'];
+                    $mime = 'application/pdf';
+                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                    
+                    if ($ext === 'pdf') {
+                        $hash = md5_file($tmpName);
+                        $subdir = substr($hash, 0, 2);
+                        $uploadDir = rtrim(ATTACHMENTS_DIR, '/\\') . '/' . $subdir;
+                        if (!is_dir($uploadDir)) {
+                            mkdir($uploadDir, 0777, true);
+                        }
+                        $finalName = $hash . '_' . time() . '.pdf';
+                        $finalPath = $uploadDir . '/' . $finalName;
+                        $dbPath = 'uploads/attachments/' . $subdir . '/' . $finalName;
+                        
+                        if (move_uploaded_file($tmpName, $finalPath)) {
+                            $body = "<p><strong>Cotización enviada para revisión ejecutiva.</strong></p>";
+                            if ($quoteMsg !== '') {
+                                $body .= "<p>" . htmlspecialchars($quoteMsg) . "</p>";
+                            }
+                            
+                            if (dbColumnExists('thread_entries', 'empresa_id')) {
+                                $stmtEntry = $mysqli->prepare("INSERT INTO thread_entries (empresa_id, thread_id, staff_id, body, is_internal, created) VALUES (?, ?, ?, ?, 0, NOW())");
+                                $stmtEntry->bind_param('iiis', $eid, $thread_id, $staffId, $body);
+                            } else {
+                                $stmtEntry = $mysqli->prepare("INSERT INTO thread_entries (thread_id, staff_id, body, is_internal, created) VALUES (?, ?, ?, 0, NOW())");
+                                $stmtEntry->bind_param('iis', $thread_id, $staffId, $body);
+                            }
+                            $stmtEntry->execute();
+                            $entryId = $mysqli->insert_id;
+                            
+                            if (dbColumnExists('attachments', 'empresa_id')) {
+                                $stmtAtt = $mysqli->prepare("INSERT INTO attachments (empresa_id, thread_entry_id, filename, original_filename, mimetype, size, path, hash, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                                $stmtAtt->bind_param('iisssiss', $eid, $entryId, $finalName, $origName, $mime, $size, $dbPath, $hash);
+                            } else {
+                                $stmtAtt = $mysqli->prepare("INSERT INTO attachments (thread_entry_id, filename, original_filename, mimetype, size, path, hash, created) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+                                $stmtAtt->bind_param('isssiss', $entryId, $finalName, $origName, $mime, $size, $dbPath, $hash);
+                            }
+                            $stmtAtt->execute();
+                            
+                            $stmtUpd = $mysqli->prepare("UPDATE ticket_approvals SET status = 'pending' WHERE ticket_id = ? AND status = 'cotizacion'");
+                            $stmtUpd->bind_param('i', $tid);
+                            $stmtUpd->execute();
+                            
+                            addLog('executive_quote_sent', 'Cotización enviada al jefe de la organización', 'ticket', $tid, 'staff', $staffId);
+                            
+                            $stmtBoss = $mysqli->prepare("SELECT u.id, u.email, u.firstname, u.lastname FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = (SELECT organization_id FROM user_organizations WHERE user_id = ? LIMIT 1) AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1");
+                            $bossRow = null;
+                            if ($stmtBoss) {
+                                $stmtBoss->bind_param('ii', $ticketView['user_id'], $eid);
+                                if ($stmtBoss->execute()) {
+                                    $bossRow = $stmtBoss->get_result()->fetch_assoc();
+                                }
+                            }
+                            if ($bossRow) {
+                                $bossEmail = trim((string)($bossRow['email'] ?? ''));
+                                if ($bossEmail !== '' && filter_var($bossEmail, FILTER_VALIDATE_EMAIL)) {
+                                    $bossName = trim($bossRow['firstname'] . ' ' . $bossRow['lastname']);
+                                    $ticketNo = $ticketView['ticket_number'];
+                                    $subjBoss = "[Revisión requerida] Cotización adjunta para el Ticket #" . $ticketNo;
+                                    $orgPortalUrl = rtrim((string)(defined('APP_URL') ? APP_URL : ''), '/') . '/upload/view-ticket.php?from=org&id=' . $tid;
+                                    
+                                    $bossBodyHtml = '<div style="font-family: Segoe UI, sans-serif; max-width: 700px; margin: 0 auto;">'
+                                        . '<h2 style="color:#1e3a5f; margin: 0 0 8px;">Cotización Lista para Revisión</h2>'
+                                        . '<p style="color:#475569; margin: 0 0 12px;">Estimado/a <strong>' . htmlspecialchars($bossName) . '</strong>, el agente ha enviado la cotización solicitada para el ticket:</p>'
+                                        . '<table style="width:100%; border-collapse: collapse; margin: 12px 0;">'
+                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee; width: 100px;"><strong>Número:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">#' . htmlspecialchars($ticketNo) . '</td></tr>'
+                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Asunto:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string)$ticketView['subject']) . '</td></tr>'
+                                        . '</table>';
+                                    if ($quoteMsg !== '') {
+                                        $bossBodyHtml .= '<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:8px; margin: 12px 0;">' . nl2br(htmlspecialchars($quoteMsg)) . '</div>';
+                                    }
+                                    $bossBodyHtml .= '<p style="margin: 14px 0 0;"><a href="' . htmlspecialchars($orgPortalUrl) . '" style="display:inline-block; background:#2563eb; color:#fff; padding:10px 16px; text-decoration:none; border-radius:8px;">Revisar y Autorizar</a></p>'
+                                        . '<p style="color:#94a3b8; font-size:12px; margin-top: 14px;">' . htmlspecialchars(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets') . '</p>'
+                                        . '</div>';
+                                        
+                                    $bossBodyText = "Cotización Lista para Revisión\n\nTicket: #" . $ticketNo . "\nAsunto: " . $ticketView['subject'] . "\n\nPor favor revise el archivo adjunto y autorice el ticket accediendo al siguiente enlace:\n" . $orgPortalUrl;
+                                    
+                                    $fileContent = file_get_contents($finalPath);
+                                    if ($fileContent !== false) {
+                                        if (function_exists('enqueueEmailJob')) {
+                                            enqueueEmailJob($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText, [
+                                                'empresa_id' => (int)$eid,
+                                                'context_type' => 'ticket_quote_sent',
+                                                'context_id' => (int)$tid,
+                                                'attachments' => [[
+                                                    'filename' => $origName,
+                                                    'contentType' => $mime,
+                                                    'content' => $fileContent,
+                                                ]]
+                                            ]);
+                                            if (function_exists('triggerEmailQueueWorkerAsync')) {
+                                                triggerEmailQueueWorkerAsync();
+                                            }
+                                        } else {
+                                            Mailer::sendWithOptions($bossEmail, $subjBoss, $bossBodyHtml, $bossBodyText, [
+                                                'attachments' => [[
+                                                    'filename' => $origName,
+                                                    'contentType' => $mime,
+                                                    'content' => base64_encode($fileContent), // Or depending on implementation
+                                                ]]
+                                            ]);
+                                        }
+                                    }
+                                }
+                            }
+                            $msg = 'quote_sent';
+                        }
+                    }
+                }
                 header("Location: tickets.php?id=$tid&msg=$msg");
                 exit;
             } elseif ($action === 'assign') {
@@ -909,18 +1114,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     $stmt->bind_param('ii', $eid, $uid);
                     $ok = $stmt->execute();
 
-                    $mysqli->query("CREATE TABLE IF NOT EXISTS banlist (\n"
-                        . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
-                        . "  email VARCHAR(255) NOT NULL,\n"
-                        . "  domain VARCHAR(255) NULL,\n"
-                        . "  notes TEXT NULL,\n"
-                        . "  is_active TINYINT(1) NOT NULL DEFAULT 0,\n"
-                        . "  created DATETIME DEFAULT CURRENT_TIMESTAMP,\n"
-                        . "  updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n"
-                        . "  KEY idx_email (email),\n"
-                        . "  KEY idx_domain (domain),\n"
-                        . "  KEY idx_active (is_active)\n"
-                        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                    // La tabla banlist ya existe en producción.
 
                     $emailNorm = strtolower(trim((string)$email));
                     if ($emailNorm !== '' && filter_var($emailNorm, FILTER_VALIDATE_EMAIL)) {
@@ -1050,8 +1244,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                         throw new Exception('ticket_links');
                     }
                     
-                    $colLinks = $mysqli->query("SHOW COLUMNS FROM ticket_links LIKE 'empresa_id'");
-                    $linksHasEmpresa = ($colLinks && $colLinks->num_rows > 0);
+                    $linksHasEmpresa = dbColumnExists('ticket_links', 'empresa_id');
 
                     if ($linksHasEmpresa) {
                         $stmtL = $mysqli->prepare('INSERT IGNORE INTO ticket_links (empresa_id, ticket_id, linked_ticket_id) VALUES (?, ?, ?), (?, ?, ?)');
@@ -1094,8 +1287,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                         header('Location: tickets.php?id=' . $tid);
                         exit;
                     }
-                $colLinks = $mysqli->query("SHOW COLUMNS FROM ticket_links LIKE 'empresa_id'");
-                $linksHasEmpresa = ($colLinks && $colLinks->num_rows > 0);
+                $linksHasEmpresa = dbColumnExists('ticket_links', 'empresa_id');
 
                 if ($linksHasEmpresa) {
                     $stmt = $mysqli->prepare("INSERT IGNORE INTO ticket_links (empresa_id, ticket_id, linked_ticket_id) VALUES (?, ?, ?), (?, ?, ?)");
@@ -1122,8 +1314,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
             } elseif ($action === 'collab_add' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_id']) && is_numeric($_POST['user_id'])) {
                 requireRolePermission('ticket.edit', 'tickets.php?id=' . $tid);
                 $uid = (int) $_POST['user_id'];
-                $exists = $mysqli->query("SHOW TABLES LIKE 'ticket_collaborators'");
-                if ($exists && $exists->num_rows > 0) {
+                if (dbTableExists('ticket_collaborators')) {
                     $userOk = false;
                     if ($uid > 0) {
                         $stmtU = $mysqli->prepare('SELECT id FROM users WHERE empresa_id = ? AND id = ? LIMIT 1');
@@ -1144,8 +1335,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
             } elseif ($action === 'collab_remove' && isset($_GET['user_id']) && is_numeric($_GET['user_id'])) {
                 requireRolePermission('ticket.edit', 'tickets.php?id=' . $tid);
                 $uid = (int) $_GET['user_id'];
-                $exists = $mysqli->query("SHOW TABLES LIKE 'ticket_collaborators'");
-                if ($exists && $exists->num_rows > 0) {
+                if (dbTableExists('ticket_collaborators')) {
                     $stmt = $mysqli->prepare("DELETE FROM ticket_collaborators WHERE ticket_id = ? AND user_id = ?");
                     $stmt->bind_param('ii', $tid, $uid);
                     $ok = $stmt->execute();
@@ -1184,10 +1374,8 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     }
 
                     // Si existen tablas de threads/entries, borrarlas explícitamente para instalaciones sin FKs
-                    $hasThreads = $mysqli->query("SHOW TABLES LIKE 'threads'");
-                    $hasEntries = $mysqli->query("SHOW TABLES LIKE 'thread_entries'");
-                    $threadsOk = $hasThreads && $hasThreads->num_rows > 0;
-                    $entriesOk = $hasEntries && $hasEntries->num_rows > 0;
+                    $threadsOk = dbTableExists('threads');
+                    $entriesOk = dbTableExists('thread_entries');
 
                     if ($threadsOk && $entriesOk) {
                         $stmtDelEntries = $mysqli->prepare(
@@ -1362,7 +1550,9 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
             }
             if ($ok && $msg && !in_array($action, ['delete', 'merge'], true)) {
                 if ($msg === 'updated' && $isClosingStatus && (int)($ticketView['requires_report'] ?? 0) === 1 && roleHasPermission('ticket.reports')) {
-                    $msg = 'closed_report';
+                    if (($ticketView['approval_status'] ?? '') !== 'rechazado') {
+                        $msg = 'closed_report';
+                    }
                 }
                 header('Location: tickets.php?id=' . $tid . '&msg=' . $msg);
                 exit;
@@ -1422,9 +1612,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                         // Notificar al cliente (solo respuestas públicas)
                         if (!$is_internal) {
                             try {
-                                $hasUserNotifs = false;
-                                $chkT = @$mysqli->query("SHOW TABLES LIKE 'user_notifications'");
-                                $hasUserNotifs = ($chkT && $chkT->num_rows > 0);
+                                $hasUserNotifs = dbTableExists('user_notifications');
                                 if ($hasUserNotifs) {
                                     $uidOwner = (int)($ticketView['user_id'] ?? 0);
                                     if ($uidOwner > 0) {
@@ -1682,7 +1870,9 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                         $reply_success = true;
                         $msgFinal = 'reply_sent';
                         if ($isClosingStatus && (int)($ticketView['requires_report'] ?? 0) === 1 && roleHasPermission('ticket.reports')) {
-                            $msgFinal = 'closed_report';
+                            if (($ticketView['approval_status'] ?? '') !== 'rechazado') {
+                                $msgFinal = 'closed_report';
+                            }
                         }
                         header('Location: tickets.php?id=' . $tid . '&msg=' . $msgFinal);
                         exit;
@@ -1759,15 +1949,13 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
         // Tickets vinculados y colaboradores (si existen tablas)
         $ticketView['linked_tickets'] = [];
         $ticketView['collaborators'] = [];
-        $resLinks = @$mysqli->query("SHOW TABLES LIKE 'ticket_links'");
-        if ($resLinks && $resLinks->num_rows > 0) {
+        if (dbTableExists('ticket_links')) {
             $stmt = $mysqli->prepare("SELECT tl.linked_ticket_id AS id, t.ticket_number, t.subject FROM ticket_links tl JOIN tickets t ON t.id = tl.linked_ticket_id WHERE tl.ticket_id = ? AND t.empresa_id = ?");
             $stmt->bind_param('ii', $tid, $eid);
             $stmt->execute();
             $ticketView['linked_tickets'] = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         }
-        $resCollab = @$mysqli->query("SHOW TABLES LIKE 'ticket_collaborators'");
-        if ($resCollab && $resCollab->num_rows > 0) {
+        if (dbTableExists('ticket_collaborators')) {
             $stmt = $mysqli->prepare("SELECT tc.user_id, u.firstname, u.lastname, u.email FROM ticket_collaborators tc JOIN users u ON u.id = tc.user_id WHERE tc.ticket_id = ? AND u.empresa_id = ?");
             $stmt->bind_param('ii', $tid, $eid);
             $stmt->execute();

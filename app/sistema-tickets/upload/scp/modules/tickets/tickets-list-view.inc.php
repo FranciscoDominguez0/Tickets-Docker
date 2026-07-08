@@ -33,8 +33,12 @@
     <div class="tickets-header">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
             <div>
-                <h1>Tickets</h1>
-                <div class="sub">Abiertos: <strong><?php echo $countOpen; ?></strong> · Sin asignar: <strong><?php echo $countUnassigned; ?></strong> · Míos: <strong><?php echo $countMine; ?></strong><?php if ($deptFilterAvailable && $selectedDeptId > 0): ?> · Dept: <strong><?php echo html($selectedDeptName ?: ('#' . (int)$selectedDeptId)); ?></strong> (Total: <strong><?php echo (int)$countSelectedDept; ?></strong>)<?php endif; ?></div>
+                <h1><?php echo $filterKey === 'billing_pending' ? 'Por facturar' : 'Tickets'; ?></h1>
+                <?php if ($filterKey === 'billing_pending'): ?>
+                <div class="sub">Tickets cerrados con reporte pendiente de facturación: <strong><?php echo (int)($countBillingPending ?? 0); ?></strong></div>
+                <?php else: ?>
+                <div class="sub">Abiertos: <strong><?php echo $countOpen; ?></strong> · Sin asignar: <strong><?php echo $countUnassigned; ?></strong> · Míos: <strong><?php echo $countMine; ?></strong><?php if (roleHasPermission('ticket.reports')): ?> · Por facturar: <strong><?php echo (int)($countBillingPending ?? 0); ?></strong><?php endif; ?><?php if ($deptFilterAvailable && $selectedDeptId > 0): ?> · Dept: <strong><?php echo html($selectedDeptName ?: ('#' . (int)$selectedDeptId)); ?></strong> (Total: <strong><?php echo (int)$countSelectedDept; ?></strong>)<?php endif; ?></div>
+                <?php endif; ?>
             </div>
             <?php if (roleHasPermission('ticket.create')): ?>
                 <a href="tickets.php?a=open" class="btn-new"><i class="bi bi-plus-lg me-1"></i> Nuevo</a>
@@ -109,6 +113,11 @@
         <div class="tickets-panel" data-filter-key="<?php echo html($filterKey); ?>" data-general-dept-id="<?php echo (int)$generalDeptId; ?>">
             <div class="tickets-toolbar">
                 <div class="tickets-filters">
+                    <?php if ($filterKey === 'billing_pending'): ?>
+                    <span class="btn btn-sm" style="pointer-events:none; cursor:default; background:#fef9c3; color:#854d0e; border:1px solid #fef08a; font-weight:700;">
+                        <i class="bi bi-clock-history"></i> Por facturar
+                    </span>
+                    <?php else: ?>
                     <div class="dropdown filter-dd">
                         <button class="btn btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <i class="bi bi-funnel"></i>
@@ -123,8 +132,9 @@
                             <li><a class="dropdown-item <?php echo $filterKey === 'all' ? 'active' : ''; ?>" href="tickets.php?filter=all<?php echo $query !== '' ? '&q=' . urlencode($query) : ''; ?><?php echo $deptParam; ?>">Todos</a></li>
                         </ul>
                     </div>
+                    <?php endif; ?>
 
-                    <?php if ($deptFilterAvailable): ?>
+                    <?php if ($deptFilterAvailable && $filterKey !== 'billing_pending'): ?>
                         <select class="form-select form-select-sm" id="ticketDeptSelect" aria-label="Filtrar por departamento">
                             <option value="0">Todos los deptos</option>
                             <?php foreach ($deptOptions as $dp): ?>
@@ -134,6 +144,7 @@
                         </select>
                     <?php endif; ?>
 
+                    <?php if ($filterKey !== 'billing_pending'): ?>
                     <div id="ticketDateRange" style="display:inline-flex; align-items:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:4px 8px; height:32px;">
                         <i class="bi bi-calendar3" style="color:#64748b; font-size:0.8rem; flex-shrink:0;"></i>
                         <input type="date" id="dateFromInput" value="<?php echo html($dateFrom); ?>" title="Desde"
@@ -176,6 +187,7 @@
                         });
                     })();
                     </script>
+                    <?php endif; ?>
                 </div>
                 <div class="tickets-search">
                     <div class="input-group">
@@ -213,7 +225,50 @@
                         <?php
                         $clientName = trim($t['user_first'] . ' ' . $t['user_last']) ?: $t['user_email'];
                         $staffName = trim($t['staff_first'] . ' ' . $t['staff_last']);
+                        
                         $statusColor = $t['status_color'] ?: '#ef4444';
+                        $statusIcon = 'bi-record-circle-fill';
+                        $statusName = html($t['status_name']);
+
+                        // Chip de revisión ejecutiva — estilo tag secundario (borde izquierdo de color)
+                        $approvalChip = '';
+                        $accentBase = 'display:inline-flex; align-items:center; gap:5px; padding:3px 8px 3px 7px; border-radius:4px; font-size:0.72rem; font-weight:600; white-space:nowrap; background:rgba(100,116,139,0.1); border-left:3px solid; border-top:none; border-right:none; border-bottom:none;';
+                        if (!empty($t['approval_status'])) {
+                            if ($t['approval_status'] === 'pending') {
+                                // Gris slate — neutral "en espera"
+                                $approvalChip = '<span title="Revisión Ejecutiva: Pendiente de aprobación" style="' . $accentBase . ' border-left-color:#64748b;">'
+                                    . '<i class="bi bi-eye" style="font-size:0.65rem; color:#64748b; opacity:0.85;"></i>'
+                                    . '<span style="opacity:0.55; font-weight:500;">Ejec.</span>'
+                                    . '<span style="font-weight:700; color:#475569;">Pendiente</span>'
+                                    . '</span>';
+                            } elseif (in_array($t['approval_status'], ['approved', 'aprobado', 'aceptado'])) {
+                                // Verde oscuro — aprobación sin neon
+                                $approvalChip = '<span title="Revisión Ejecutiva: Aprobado" style="' . $accentBase . ' border-left-color:#166534;">'
+                                    . '<i class="bi bi-eye" style="font-size:0.65rem; color:#166534; opacity:0.85;"></i>'
+                                    . '<span style="opacity:0.55; font-weight:500;">Ejec.</span>'
+                                    . '<span style="font-weight:700; color:#166534;">Aprobado</span>'
+                                    . '</span>';
+                            } elseif (in_array($t['approval_status'], ['rejected', 'rechazado'])) {
+                                // Carmesí oscuro — rechazo sin rojo brillante
+                                $approvalChip = '<span title="Revisión Ejecutiva: Rechazado" style="' . $accentBase . ' border-left-color:#9f1239;">'
+                                    . '<i class="bi bi-eye" style="font-size:0.65rem; color:#9f1239; opacity:0.85;"></i>'
+                                    . '<span style="opacity:0.55; font-weight:500;">Ejec.</span>'
+                                    . '<span style="font-weight:700; color:#9f1239;">Rechazado</span>'
+                                    . '</span>';
+                            } elseif ($t['approval_status'] === 'cotizacion') {
+                                // Teal — documento/cotización, distinto del azul de "Abierto"
+                                $approvalChip = '<span title="Revisión Ejecutiva: Cotización enviada" style="' . $accentBase . ' border-left-color:#0f766e;">'
+                                    . '<i class="bi bi-eye" style="font-size:0.65rem; color:#0f766e; opacity:0.85;"></i>'
+                                    . '<span style="opacity:0.55; font-weight:500;">Ejec.</span>'
+                                    . '<span style="font-weight:700; color:#0f766e;">Cotización</span>'
+                                    . '</span>';
+                            }
+                        }
+                        
+                        if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1) {
+                            $approvalChip = ''; // Ocultar el badge "Ejecutivo" si ya se hizo el reporte de costos
+                        }
+
                         $priorityColor = $t['priority_color'] ?: '#94a3b8';
 
                         $tidRow = (int)($t['id'] ?? 0);
@@ -293,8 +348,11 @@
                                     <?php endif; ?>
                                     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top: 2px;">
                                         <span class="chip chip-status" style="background: <?php echo html($statusColor); ?>15; color: <?php echo html($statusColor); ?>; border: 1px solid <?php echo html($statusColor); ?>33; font-size:0.7rem; border-radius:6px; padding:3px 8px; font-weight:700;">
-                                            <?php echo html($t['status_name']); ?>
+                                            <i class="bi <?php echo $statusIcon; ?>" style="font-size: 0.6rem; margin-right: 4px; vertical-align: middle;"></i> <?php echo $statusName; ?>
                                         </span>
+                                        <?php if ($approvalChip !== ''): ?>
+                                            <?php echo $approvalChip; ?>
+                                        <?php endif; ?>
                                         <?php if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1): ?>
                                             <?php 
                                             $bstatus = $t['billing_status'] ?? 'pending';
@@ -315,8 +373,7 @@
                                                     <i class="bi bi-clock-history"></i> Pendiente Facturación
                                                 </span>
                                             <?php endif; ?>
-                                        <?php endif; ?>
-                                    </div>
+                                        <?php endif; ?>                                    </div>
                                 </div>
                             </td>
                             <td class="d-none d-lg-table-cell" style="vertical-align: middle;">
@@ -337,8 +394,11 @@
                             <td class="d-none d-md-table-cell" style="vertical-align: middle;">
                                 <div style="display:flex; flex-direction:column; gap:6px; align-items: flex-start;">
                                     <span class="chip chip-status" style="background: <?php echo html($statusColor); ?>15; color: <?php echo html($statusColor); ?>; border: 1px solid <?php echo html($statusColor); ?>33; padding: 6px 14px; font-weight: 700; letter-spacing: 0.03em; border-radius: 8px; font-size: 0.8rem; text-transform: uppercase;">
-                                        <i class="bi bi-record-circle-fill" style="font-size: 0.6rem; margin-right: 4px; vertical-align: middle;"></i> <?php echo html($t['status_name']); ?>
+                                        <i class="bi <?php echo $statusIcon; ?>" style="font-size: 0.6rem; margin-right: 4px; vertical-align: middle;"></i> <?php echo $statusName; ?>
                                     </span>
+                                    <?php if ($approvalChip !== ''): ?>
+                                        <?php echo $approvalChip; ?>
+                                    <?php endif; ?>
                                     <?php if (!empty($t['closed']) && (int)($t['has_report'] ?? 0) === 1): ?>
                                         <?php 
                                         $bstatus = $t['billing_status'] ?? 'pending';
@@ -359,8 +419,7 @@
                                                 <i class="bi bi-clock-history"></i> Pendiente Facturación
                                             </span>
                                         <?php endif; ?>
-                                    <?php endif; ?>
-                                </div>
+                                    <?php endif; ?>                                </div>
                             </td>
                             <td class="d-none d-lg-table-cell" style="vertical-align: middle;">
                                 <div style="color:#64748b; font-size: 0.85rem; font-weight: 600; display:flex; align-items:center; gap:6px;">

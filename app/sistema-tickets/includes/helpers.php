@@ -19,6 +19,9 @@ function requireLogin($type = 'user')
     if ($type === 'cliente') {
         $status = (string) getAppSetting('system.helpdesk_status', 'online');
         if ($status === 'offline') {
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Pragma: no-cache');
+            header('Expires: 0');
             $currentPath = (string) ($_SERVER['PHP_SELF'] ?? '');
             if (strpos($currentPath, '/upload/') !== false) {
                 header('Location: login.php?msg=offline');
@@ -35,6 +38,9 @@ function requireLogin($type = 'user')
         $returnUrl = basename($currentPath) . ($queryString !== '' ? '?' . $queryString : '');
         $returnParam = ($returnUrl !== '' && $returnUrl !== 'login.php') ? '?return=' . urlencode($returnUrl) : '';
 
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
         if (strpos($currentPath, '/upload/') !== false) {
             header('Location: login.php' . $returnParam);
         } else {
@@ -503,19 +509,7 @@ function syncEmpresaBillingStatus($empresaId)
 
 function ensureBillingNoticeLogTable()
 {
-    global $mysqli;
-    if (!isset($mysqli) || !$mysqli)
-        return false;
-    $sql = "CREATE TABLE IF NOT EXISTS billing_notice_log (\n"
-        . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  empresa_id INT NOT NULL,\n"
-        . "  days_before INT NOT NULL,\n"
-        . "  fecha_vencimiento DATE NOT NULL,\n"
-        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  UNIQUE KEY uq_billing_notice (empresa_id, days_before, fecha_vencimiento),\n"
-        . "  KEY idx_empresa (empresa_id)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-    return (bool) $mysqli->query($sql);
+    return true;
 }
 
 function syncAllEmpresasBillingStatus()
@@ -720,10 +714,49 @@ function dbTableExists($tableName, $ttlSeconds = 300)
     $tableName = trim((string) $tableName);
     if ($tableName === '' || !preg_match('/^[a-zA-Z0-9_]+$/', $tableName))
         return false;
+
+    // Optimización: tablas que sabemos que existen y son fijas en producción
+    $knownTables = [
+        'empresas' => true,
+        'staff' => true,
+        'notifications' => true,
+        'tickets' => true,
+        'thread_entries' => true,
+        'threads' => true,
+        'users' => true,
+        'organizations' => true,
+        'user_organizations' => true,
+        'ticket_reports' => true,
+        'ticket_approvals' => true,
+        'ticket_report_items' => true,
+        'role_permissions' => true,
+        'roles' => true,
+        'sequences' => true,
+        'banlist' => true,
+        'email_accounts' => true,
+        'billing_notice_log' => true,
+        'thread_entry_reads' => true,
+        'departments' => true,
+        'help_topics' => true,
+        'staff_departments' => true,
+        'staff_ticket_seen' => true,
+        'staff_reports_seen' => true,
+        'app_settings' => true,
+        'logs' => true,
+        'email_queue' => true,
+        'ticket_links' => true,
+        'email_logs' => true,
+        'notification_recipients' => true,
+    ];
+    $lowerTable = strtolower($tableName);
+    if (isset($knownTables[$lowerTable])) {
+        return true;
+    }
+
     $ttlSeconds = max(5, (int) $ttlSeconds);
 
     static $runtimeCache = [];
-    $cacheKey = 'tbl:' . strtolower($tableName);
+    $cacheKey = 'tbl:' . $lowerTable;
     $now = time();
     if (isset($runtimeCache[$cacheKey]) && ($now - (int) $runtimeCache[$cacheKey]['ts']) <= $ttlSeconds) {
         return (bool) $runtimeCache[$cacheKey]['ok'];
@@ -759,6 +792,48 @@ function dbColumnExists($tableName, $columnName, $ttlSeconds = 300)
         return false;
     if (!preg_match('/^[a-zA-Z0-9_]+$/', $tableName) || !preg_match('/^[a-zA-Z0-9_]+$/', $columnName))
         return false;
+
+    // Optimización: columnas que sabemos que existen en producción
+    $knownColumns = [
+        'tickets:closed' => true,
+        'tickets:client_signature' => true,
+        'tickets:close_message' => true,
+        'tickets:closed_at' => true,
+        'tickets:signature_token' => true,
+        'tickets:signature_requested' => true,
+        'tickets:topic_id' => true,
+        'tickets:walkin_phone' => true,
+        'tickets:walkin_address' => true,
+        'staff:empresa_id' => true,
+        'staff:signature' => true,
+        'thread_entries:empresa_id' => true,
+        'threads:empresa_id' => true,
+        'organizations:plain_text_emails' => true,
+        'users:org_tickets_view' => true,
+        'users:phone' => true,
+        'users:status' => true,
+        'users:created' => true,
+        'app_settings:empresa_id' => true,
+        'logs:empresa_id' => true,
+        'role_permissions:empresa_id' => true,
+        'roles:empresa_id' => true,
+        'sequences:empresa_id' => true,
+        'banlist:empresa_id' => true,
+        'email_accounts:empresa_id' => true,
+        'departments:empresa_id' => true,
+        'departments:requires_report' => true,
+        'departments:default_staff_id' => true,
+        'help_topics:is_public' => true,
+        'ticket_reports:billing_status' => true,
+        'ticket_links:empresa_id' => true,
+        'staff:role' => true,
+        'staff:dept_id' => true,
+    ];
+    $lowerKey = strtolower($tableName) . ':' . strtolower($columnName);
+    if (isset($knownColumns[$lowerKey])) {
+        return true;
+    }
+
     $ttlSeconds = max(5, (int) $ttlSeconds);
 
     static $runtimeCache = [];
@@ -792,29 +867,7 @@ function dbColumnExists($tableName, $columnName, $ttlSeconds = 300)
  */
 function ensureThreadEntryReadsTable($mysqli): void
 {
-    if (!isset($mysqli) || !$mysqli) {
-        return;
-    }
-    static $done = false;
-    if ($done) {
-        return;
-    }
-    $done = true;
-    @$mysqli->query(
-        "CREATE TABLE IF NOT EXISTS thread_entry_reads (\n"
-        . "  id INT UNSIGNED NOT NULL AUTO_INCREMENT,\n"
-        . "  empresa_id INT UNSIGNED NOT NULL DEFAULT 1,\n"
-        . "  thread_entry_id INT UNSIGNED NOT NULL,\n"
-        . "  read_by ENUM('user','staff') NOT NULL,\n"
-        . "  reader_id INT UNSIGNED NOT NULL DEFAULT 0,\n"
-        . "  read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  PRIMARY KEY (id),\n"
-        . "  UNIQUE KEY uk_entry_read (thread_entry_id, read_by, reader_id),\n"
-        . "  KEY idx_empresa (empresa_id),\n"
-        . "  KEY idx_thread_entry (thread_entry_id)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-    );
-    unset($_SESSION['_dbmeta_cache']['tbl:thread_entry_reads']);
+    // Tabla ya creada
 }
 
 /** Marca mensajes del agente como leídos por el cliente. */
@@ -934,31 +987,9 @@ function threadEntryReadReceiptHtml(bool $isRead, bool $iconFirst = true): strin
 }
 
 /** Tabla usuario ↔ organizaciones (muchos a muchos). */
-function ensureUserOrganizationsTable($mysqli): bool
+function ensureUserOrganizationsTable($mysqli)
 {
-    if (!isset($mysqli) || !$mysqli) {
-        return false;
-    }
-    static $done = false;
-    if ($done) {
-        return true;
-    }
-    $done = true;
-    $ok = (bool) @$mysqli->query(
-        "CREATE TABLE IF NOT EXISTS user_organizations (\n"
-        . "  id INT UNSIGNED NOT NULL AUTO_INCREMENT,\n"
-        . "  empresa_id INT UNSIGNED NOT NULL DEFAULT 1,\n"
-        . "  user_id INT UNSIGNED NOT NULL,\n"
-        . "  organization_id INT UNSIGNED NOT NULL,\n"
-        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  PRIMARY KEY (id),\n"
-        . "  UNIQUE KEY uk_user_org (user_id, organization_id),\n"
-        . "  KEY idx_empresa_user (empresa_id, user_id),\n"
-        . "  KEY idx_org (organization_id)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-    );
-    unset($_SESSION['_dbmeta_cache']['tbl:user_organizations']);
-    return $ok;
+    return true;
 }
 
 /**
@@ -1425,7 +1456,7 @@ function mysqliBindParams(mysqli_stmt $stmt, string $types, array $baseParams, a
     return (bool) call_user_func_array([$stmt, 'bind_param'], $refs);
 }
 
-function countPortalOrganizationTickets($mysqli, int $empresaId, int $organizationId, string $orgName, ?array $monthFilter = null): int
+function countPortalOrganizationTickets($mysqli, int $empresaId, int $organizationId, string $orgName, ?array $monthFilter = null, ?string $searchQuery = null): int
 {
     if ($empresaId <= 0 || $organizationId <= 0 || !isset($mysqli) || !$mysqli) {
         return 0;
@@ -1434,6 +1465,16 @@ function countPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
     $monthSql = ticketMonthFilterSqlClause($monthFilter);
     $monthTypes = $monthSql !== '' ? 'ss' : '';
     $monthParams = $monthSql !== '' ? [$monthFilter['start'], $monthFilter['end']] : [];
+    
+    $searchSql = '';
+    $searchTypes = '';
+    $searchParams = [];
+    if (!empty($searchQuery)) {
+        $searchSql = " AND t.ticket_number LIKE ?";
+        $searchTypes = 's';
+        $searchLike = '%' . trim($searchQuery) . '%';
+        $searchParams = [$searchLike];
+    }
 
     if ($organizationId > 0 && organizationMembershipEnabled($mysqli)) {
         $sql = "SELECT COUNT(DISTINCT t.id) AS c
@@ -1452,26 +1493,26 @@ function countPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
                         WHERE uo2.user_id = u.id AND uo2.empresa_id = ?
                     )
                 )
-            )" . $monthSql;
+            )" . $monthSql . $searchSql;
         $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
             return 0;
         }
         mysqliBindParams(
             $stmt,
-            'iiiisi' . $monthTypes,
+            'iiiisi' . $monthTypes . $searchTypes,
             [$empresaId, $empresaId, $organizationId, $empresaId, $orgName, $empresaId],
-            $monthParams
+            array_merge($monthParams, $searchParams)
         );
     } else {
         $sql = 'SELECT COUNT(*) AS c FROM tickets t
             INNER JOIN users u ON t.user_id = u.id AND u.empresa_id = t.empresa_id
-            WHERE t.empresa_id = ? AND u.empresa_id = ? AND u.company = ?' . $monthSql;
+            WHERE t.empresa_id = ? AND u.empresa_id = ? AND u.company = ?' . $monthSql . $searchSql;
         $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
             return 0;
         }
-        mysqliBindParams($stmt, 'iis' . $monthTypes, [$empresaId, $empresaId, $orgName], $monthParams);
+        mysqliBindParams($stmt, 'iis' . $monthTypes . $searchTypes, [$empresaId, $empresaId, $orgName], array_merge($monthParams, $searchParams));
     }
     if (!$stmt->execute()) {
         return 0;
@@ -1484,7 +1525,7 @@ function countPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
  *
  * @return array<int, array<string, mixed>>
  */
-function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizationId, string $orgName, int $limit, int $offset, ?array $monthFilter = null): array
+function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizationId, string $orgName, int $limit, int $offset, ?array $monthFilter = null, ?string $searchQuery = null): array
 {
     if ($empresaId <= 0 || $organizationId <= 0 || !isset($mysqli) || !$mysqli) {
         return [];
@@ -1495,6 +1536,16 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
     $monthSql = ticketMonthFilterSqlClause($monthFilter);
     $monthTypes = $monthSql !== '' ? 'ss' : '';
     $monthParams = $monthSql !== '' ? [$monthFilter['start'], $monthFilter['end']] : [];
+    
+    $searchSql = '';
+    $searchTypes = '';
+    $searchParams = [];
+    if (!empty($searchQuery)) {
+        $searchSql = " AND t.ticket_number LIKE ?";
+        $searchTypes = 's';
+        $searchLike = '%' . trim($searchQuery) . '%';
+        $searchParams = [$searchLike];
+    }
 
     if ($organizationId > 0 && organizationMembershipEnabled($mysqli)) {
         $sql = "SELECT t.id, t.ticket_number, t.subject, t.created, t.closed, t.user_id AS owner_user_id,
@@ -1517,7 +1568,7 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
                         WHERE uo2.user_id = u.id AND uo2.empresa_id = ?
                     )
                 )
-            )" . $monthSql . "
+            )" . $monthSql . $searchSql . "
             ORDER BY CASE WHEN (SELECT status FROM ticket_approvals WHERE ticket_id = t.id ORDER BY id DESC LIMIT 1) = 'pending' THEN 0 ELSE 1 END,
                 COALESCE(t.updated, t.created) DESC, t.id DESC
             LIMIT ? OFFSET ?";
@@ -1527,9 +1578,9 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
         }
         mysqliBindParams(
             $stmt,
-            'iiiisi' . $monthTypes . 'ii',
+            'iiiisi' . $monthTypes . $searchTypes . 'ii',
             [$empresaId, $empresaId, $organizationId, $empresaId, $orgName, $empresaId],
-            array_merge($monthParams, [$limit, $offset])
+            array_merge($monthParams, $searchParams, [$limit, $offset])
         );
     } else {
         $sql = "SELECT t.id, t.ticket_number, t.subject, t.created, t.closed, t.user_id AS owner_user_id,
@@ -1539,7 +1590,7 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
             FROM tickets t
             INNER JOIN users u ON t.user_id = u.id AND u.empresa_id = t.empresa_id
             LEFT JOIN ticket_status ts ON t.status_id = ts.id
-            WHERE t.empresa_id = ? AND u.empresa_id = ? AND u.company = ?" . $monthSql . "
+            WHERE t.empresa_id = ? AND u.empresa_id = ? AND u.company = ?" . $monthSql . $searchSql . "
             ORDER BY CASE WHEN (SELECT status FROM ticket_approvals WHERE ticket_id = t.id ORDER BY id DESC LIMIT 1) = 'pending' THEN 0 ELSE 1 END,
                 COALESCE(t.updated, t.created) DESC, t.id DESC
             LIMIT ? OFFSET ?";
@@ -1549,9 +1600,9 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
         }
         mysqliBindParams(
             $stmt,
-            'iis' . $monthTypes . 'ii',
+            'iis' . $monthTypes . $searchTypes . 'ii',
             [$empresaId, $empresaId, $orgName],
-            array_merge($monthParams, [$limit, $offset])
+            array_merge($monthParams, $searchParams, [$limit, $offset])
         );
     }
     if (!$stmt->execute()) {
@@ -1563,17 +1614,7 @@ function fetchPortalOrganizationTickets($mysqli, int $empresaId, int $organizati
 /** Columna users.org_tickets_view (portal: ver tickets de la organización). */
 function ensureUserOrgTicketsViewColumn($mysqli): bool
 {
-    if (!isset($mysqli) || !$mysqli || !dbTableExists('users')) {
-        return false;
-    }
-    if (dbColumnExists('users', 'org_tickets_view')) {
-        return true;
-    }
-    $ok = (bool) @$mysqli->query(
-        'ALTER TABLE users ADD COLUMN org_tickets_view TINYINT(1) NOT NULL DEFAULT 0'
-    );
-    unset($_SESSION['_dbmeta_cache']['col:users:org_tickets_view']);
-    return $ok;
+    return true;
 }
 
 function userOrgTicketsViewEnabled($mysqli, int $userId, int $empresaId): bool
@@ -1996,6 +2037,25 @@ function parseTicketHexRgb(string $color): ?array
     ];
 }
 
+/**
+ * Estado visible cuando hay aprobación ejecutiva pendiente.
+ * No altera ticket_status en BD; solo la presentación en UI.
+ */
+function ticketEffectiveStatusDisplay($statusName, $statusColor, $approvalStatus): array
+{
+    if ((string) $approvalStatus === 'pending') {
+        return [
+            'name' => 'Pendiente aprobación',
+            'color' => '#d97706',
+        ];
+    }
+
+    return [
+        'name' => (string) $statusName,
+        'color' => (string) ($statusColor !== '' && $statusColor !== null ? $statusColor : '#64748b'),
+    ];
+}
+
 function clientTicketBadgeStyle(string $color, bool $darkMode = false): string
 {
     $hex = normalizeTicketHexColor($color);
@@ -2107,64 +2167,6 @@ function generateTicketNumber()
 
 function ensureAppSettingsTable()
 {
-    global $mysqli;
-    if (!isset($mysqli) || !$mysqli)
-        return false;
-
-    static $ensured = null;
-    if ($ensured !== null) {
-        return (bool) $ensured;
-    }
-
-    $sql = "CREATE TABLE IF NOT EXISTS app_settings (\n"
-        . "  `empresa_id` INT NOT NULL DEFAULT 1,\n"
-        . "  `key` VARCHAR(191) NOT NULL,\n"
-        . "  `value` LONGTEXT NULL,\n"
-        . "  `updated` DATETIME NULL,\n"
-        . "  PRIMARY KEY (`empresa_id`, `key`)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-
-    if (!$mysqli->query($sql)) {
-        $ensured = false;
-        return false;
-    }
-
-    $hasEmpresa = false;
-    $hasEmpresa = dbColumnExists('app_settings', 'empresa_id');
-    if (!$hasEmpresa) {
-        $mysqli->query("ALTER TABLE app_settings ADD COLUMN empresa_id INT NOT NULL DEFAULT 1");
-    }
-
-    $hasEmpresa2 = dbColumnExists('app_settings', 'empresa_id');
-    if ($hasEmpresa2) {
-        $primaryCols = [];
-        $idx = $mysqli->query("SHOW INDEX FROM app_settings WHERE Key_name = 'PRIMARY'");
-        if ($idx) {
-            while ($r = $idx->fetch_assoc()) {
-                $primaryCols[] = (string) ($r['Column_name'] ?? '');
-            }
-        }
-        $primaryCols = array_values(array_filter(array_unique($primaryCols)));
-        $hasComposite = in_array('empresa_id', $primaryCols, true) && in_array('key', $primaryCols, true);
-        if (!$hasComposite) {
-            @$mysqli->query('ALTER TABLE app_settings DROP PRIMARY KEY');
-            @$mysqli->query('ALTER TABLE app_settings ADD PRIMARY KEY (empresa_id, `key`)');
-        }
-
-        // Asegurar que no exista un UNIQUE/PRIMARY legacy sobre `key` solamente,
-        // porque haría que los cambios de una empresa afecten a otra.
-        $idxU = $mysqli->query("SHOW INDEX FROM app_settings WHERE Key_name = 'uq_app_settings_key'");
-        if ($idxU && $idxU->num_rows > 0) {
-            @$mysqli->query('ALTER TABLE app_settings DROP INDEX uq_app_settings_key');
-        }
-
-        $idxComposite = $mysqli->query("SHOW INDEX FROM app_settings WHERE Key_name = 'uq_app_settings_empresa_key'");
-        if (!$idxComposite || $idxComposite->num_rows < 1) {
-            @$mysqli->query('ALTER TABLE app_settings ADD UNIQUE KEY uq_app_settings_empresa_key (empresa_id, `key`)');
-        }
-    }
-
-    $ensured = true;
     return true;
 }
 
@@ -2502,84 +2504,16 @@ function notifyStatusChangeToAdminRecipients($tid, $statusName)
 
 function ensureEmailQueueTable()
 {
-    global $mysqli;
-    if (!isset($mysqli) || !$mysqli)
-        return false;
-
-    $sql = "CREATE TABLE IF NOT EXISTS email_queue (\n"
-        . "  id BIGINT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
-        . "  recipient_email VARCHAR(255) NOT NULL,\n"
-        . "  subject VARCHAR(255) NOT NULL,\n"
-        . "  body_html MEDIUMTEXT NULL,\n"
-        . "  body_text MEDIUMTEXT NULL,\n"
-        . "  attachments_json MEDIUMTEXT NULL,\n"
-        . "  status VARCHAR(20) NOT NULL DEFAULT 'pending',\n"
-        . "  attempts INT NOT NULL DEFAULT 0,\n"
-        . "  max_attempts INT NOT NULL DEFAULT 5,\n"
-        . "  next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  last_error TEXT NULL,\n"
-        . "  context_type VARCHAR(50) NULL,\n"
-        . "  context_id INT NULL,\n"
-        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  sent_at DATETIME NULL,\n"
-        . "  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n"
-        . "  KEY idx_email_queue_status_next (status, next_attempt_at),\n"
-        . "  KEY idx_email_queue_empresa (empresa_id),\n"
-        . "  KEY idx_email_queue_context (context_type, context_id)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-    if (!$mysqli->query($sql))
-        return false;
-
-    if (!dbColumnExists('email_queue', 'empresa_id')) {
-        @$mysqli->query("ALTER TABLE email_queue ADD COLUMN empresa_id INT NOT NULL DEFAULT 1");
-        @$mysqli->query("ALTER TABLE email_queue ADD INDEX idx_email_queue_empresa (empresa_id)");
-    }
-    // Asegurar columna de adjuntos para correos con PDF/archivos
-    if (!dbColumnExists('email_queue', 'attachments_json')) {
-        @$mysqli->query("ALTER TABLE email_queue ADD COLUMN attachments_json MEDIUMTEXT NULL AFTER body_text");
-    }
     return true;
 }
 
 function ensureEmailLogsTable()
 {
-    global $mysqli;
-    if (!isset($mysqli) || !$mysqli)
-        return false;
-    $sql = "CREATE TABLE IF NOT EXISTS email_logs (\n"
-        . "  id BIGINT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
-        . "  queue_id BIGINT NULL,\n"
-        . "  recipient_email VARCHAR(255) NULL,\n"
-        . "  status VARCHAR(20) NOT NULL,\n"
-        . "  error_message TEXT NULL,\n"
-        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  KEY idx_email_logs_empresa (empresa_id),\n"
-        . "  KEY idx_email_logs_queue (queue_id),\n"
-        . "  KEY idx_email_logs_status (status)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-    if (!$mysqli->query($sql))
-        return false;
     return true;
 }
 
 function ensureNotificationRecipientsTable()
 {
-    global $mysqli;
-    if (!isset($mysqli) || !$mysqli)
-        return false;
-    $sql = "CREATE TABLE IF NOT EXISTS notification_recipients (\n"
-        . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
-        . "  staff_id INT NOT NULL,\n"
-        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  UNIQUE KEY uq_notification_recipient (empresa_id, staff_id),\n"
-        . "  KEY idx_notification_staff (staff_id),\n"
-        . "  KEY idx_notification_empresa (empresa_id)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-    if (!$mysqli->query($sql))
-        return false;
     return true;
 }
 
@@ -2649,20 +2583,63 @@ function enqueueEmailJob($to, $subject, $bodyHtml, $bodyText = '', array $meta =
         $subject = mb_substr($subject, 0, 252) . '...';
     }
 
-    // Serializar adjuntos si existen (PDF bytes como base64)
+
+
+    // Serializar adjuntos si existen (PDF bytes como base64 o ruta a fichero en disco)
     $attachmentsJson = null;
     if (isset($meta['attachments']) && is_array($meta['attachments']) && !empty($meta['attachments'])) {
+        // Límite seguro: TEXT = 65535 bytes. El JSON incluye el cuerpo completo del mail +
+        // metadatos, así que usamos 48 000 bytes como umbral máximo del contenido binario.
+        // Por encima de ese límite, volcamos el binario a un fichero temporal y guardamos
+        // sólo la ruta, evitando el error "Data too long for column 'attachments_json'".
+        $maxInlineBytes = 48000;
+
         $serializable = [];
         foreach ($meta['attachments'] as $att) {
             if (!is_array($att))
                 continue;
             $item = [
-                'filename' => (string) ($att['filename'] ?? 'adjunto'),
-                'contentType' => (string) ($att['contentType'] ?? 'application/octet-stream'),
+                'filename'    => (string)($att['filename'] ?? 'adjunto'),
+                'contentType' => (string)($att['contentType'] ?? 'application/octet-stream'),
             ];
-            if (isset($att['content']) && $att['content'] !== '' && $att['content'] !== null) {
-                // Codificar bytes binarios como base64 para almacenar en JSON
-                $item['content_b64'] = base64_encode($att['content']);
+
+            $rawContent = isset($att['content']) ? $att['content'] : null;
+
+            if ($rawContent !== null && $rawContent !== '') {
+                if (strlen((string)$rawContent) > $maxInlineBytes) {
+                    // Contenido demasiado grande para guardar en base64 en la BD.
+                    // Volcamos a un fichero temporal y guardamos sólo la ruta.
+                    $fileSizeKb = round(strlen((string)$rawContent) / 1024, 1);
+                    $limitKb    = round($maxInlineBytes / 1024, 1);
+                    error_log(
+                        '[mail_queue] ADVERTENCIA: Adjunto "' . ($att['filename'] ?? 'adjunto') . '" '
+                        . '(' . $fileSizeKb . ' KB) supera el límite recomendado para almacenar inline '
+                        . '(' . $limitKb . ' KB). Se guardará en fichero temporal en lugar de base64 en BD.'
+                    );
+                    try {
+                        $tmpDir = sys_get_temp_dir() . '/mail_queue_atts';
+                        if (!is_dir($tmpDir)) {
+                            mkdir($tmpDir, 0700, true);
+                        }
+                        $safeFilename = preg_replace('/[^A-Za-z0-9_.\-]/', '_', (string)($att['filename'] ?? 'adjunto'));
+                        $tmpFile = $tmpDir . '/' . bin2hex(random_bytes(12)) . '_' . $safeFilename;
+                        if (file_put_contents($tmpFile, $rawContent) !== false) {
+                            $item['file_path'] = $tmpFile;
+                            error_log('[mail_queue] Adjunto guardado en fichero temporal: ' . $tmpFile);
+                        } else {
+                            // Si no se pudo escribir, caer al método base64 (puede fallar igualmente)
+                            error_log('[mail_queue] ERROR: No se pudo escribir fichero temporal para adjunto. Intentando base64 (riesgo de truncar BD).');
+                            $item['content_b64'] = base64_encode((string)$rawContent);
+                        }
+                    } catch (Throwable $e) {
+                        error_log('[mail_queue] ERROR inesperado al guardar adjunto temporal: ' . $e->getMessage());
+                        // Último recurso: base64 (puede seguir fallando en BD, pero no peor que antes)
+                        $item['content_b64'] = base64_encode((string)$rawContent);
+                    }
+                } else {
+                    // Adjunto pequeño: guardar inline en base64 (comportamiento original)
+                    $item['content_b64'] = base64_encode((string)$rawContent);
+                }
             }
             $serializable[] = $item;
         }
@@ -3240,4 +3217,642 @@ function notifyApprovalToAdminRecipients($tid, $statusName)
             }
         }
     }
+}
+
+function ensureOrgBossReportsTable()
+{
+    global $mysqli;
+    if (!isset($mysqli) || !$mysqli) {
+        return false;
+    }
+    $sql = "CREATE TABLE IF NOT EXISTS org_boss_reports (\n"
+        . "  id BIGINT PRIMARY KEY AUTO_INCREMENT,\n"
+        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
+        . "  staff_id INT NOT NULL,\n"
+        . "  organization_id INT NOT NULL,\n"
+        . "  target_user_id INT NULL,\n"
+        . "  subject VARCHAR(255) NOT NULL,\n"
+        . "  body_html MEDIUMTEXT NULL,\n"
+        . "  body_text MEDIUMTEXT NULL,\n"
+        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+        . "  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n"
+        . "  KEY idx_obr_empresa (empresa_id),\n"
+        . "  KEY idx_obr_org (organization_id),\n"
+        . "  KEY idx_obr_created (created_at)\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+    if (!$mysqli->query($sql)) {
+        return false;
+    }
+    return true;
+}
+
+function ensureOrgBossReportAttachmentsTable()
+{
+    global $mysqli;
+    if (!isset($mysqli) || !$mysqli) {
+        return false;
+    }
+    ensureOrgBossReportsTable();
+    $sql = "CREATE TABLE IF NOT EXISTS org_boss_report_attachments (\n"
+        . "  id BIGINT PRIMARY KEY AUTO_INCREMENT,\n"
+        . "  report_id BIGINT NOT NULL,\n"
+        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
+        . "  original_filename VARCHAR(255) NOT NULL,\n"
+        . "  filename VARCHAR(255) NOT NULL,\n"
+        . "  mimetype VARCHAR(128) NULL,\n"
+        . "  size INT NOT NULL DEFAULT 0,\n"
+        . "  path VARCHAR(512) NOT NULL,\n"
+        . "  hash VARCHAR(64) NULL,\n"
+        . "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+        . "  KEY idx_obra_report (report_id),\n"
+        . "  KEY idx_obra_empresa (empresa_id)\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+    return (bool) $mysqli->query($sql);
+}
+
+function ensureOrgBossReportReadsTable()
+{
+    global $mysqli;
+    if (!isset($mysqli) || !$mysqli) {
+        return false;
+    }
+    ensureOrgBossReportsTable();
+    $sql = "CREATE TABLE IF NOT EXISTS org_boss_report_reads (\n"
+        . "  id BIGINT PRIMARY KEY AUTO_INCREMENT,\n"
+        . "  report_id BIGINT NOT NULL,\n"
+        . "  user_id INT NOT NULL,\n"
+        . "  read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+        . "  UNIQUE KEY uq_obr_read (report_id, user_id),\n"
+        . "  KEY idx_obrr_user (user_id)\n"
+        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+    return (bool) $mysqli->query($sql);
+}
+
+function orgBossReportsStorageDir()
+{
+    $base = defined('ATTACHMENTS_DIR') ? dirname((string) ATTACHMENTS_DIR) : (__DIR__ . '/../upload/uploads');
+    $dir = rtrim(str_replace('\\', '/', $base), '/') . '/org_boss_reports';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+/**
+ * @return array<int, array{id:int,email:string,firstname:string,lastname:string}>
+ */
+function fetchOrganizationBosses($mysqli, int $empresaId, int $organizationId): array
+{
+    if ($empresaId <= 0 || $organizationId <= 0 || !isset($mysqli) || !$mysqli) {
+        return [];
+    }
+    if (!ensureUserOrgTicketsViewColumn($mysqli) || !organizationMembershipEnabled($mysqli)) {
+        return [];
+    }
+    $stmt = $mysqli->prepare(
+        "SELECT DISTINCT u.id, u.email, u.firstname, u.lastname\n"
+        . "FROM user_organizations uo\n"
+        . "JOIN users u ON u.id = uo.user_id AND u.empresa_id = uo.empresa_id\n"
+        . "WHERE uo.empresa_id = ? AND uo.organization_id = ? AND u.org_tickets_view = 1 AND u.status = 'active'\n"
+        . "ORDER BY u.firstname, u.lastname"
+    );
+    if (!$stmt) {
+        return [];
+    }
+    $stmt->bind_param('ii', $empresaId, $organizationId);
+    if (!$stmt->execute()) {
+        return [];
+    }
+    $rows = [];
+    $res = $stmt->get_result();
+    while ($res && ($row = $res->fetch_assoc())) {
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
+function bossCanAccessOrgReport($mysqli, int $userId, int $empresaId, array $reportRow): bool
+{
+    if ($userId <= 0 || $empresaId <= 0 || empty($reportRow)) {
+        return false;
+    }
+    if (!userOrgTicketsViewEnabled($mysqli, $userId, $empresaId)) {
+        return false;
+    }
+    $orgId = (int) ($reportRow['organization_id'] ?? 0);
+    if ($orgId <= 0) {
+        return false;
+    }
+    $orgs = getPortalOrganizationsForUser($mysqli, $userId, $empresaId);
+    foreach ($orgs as $o) {
+        if ((int) ($o['organization_id'] ?? 0) === $orgId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function countUnreadOrgBossReportsForUser($mysqli, int $userId, int $empresaId): int
+{
+    if ($userId <= 0 || !userOrgTicketsViewEnabled($mysqli, $userId, $empresaId)) {
+        return 0;
+    }
+    if (!ensureOrgBossReportReadsTable()) {
+        return 0;
+    }
+    $orgs = getPortalOrganizationsForUser($mysqli, $userId, $empresaId);
+    $orgIds = [];
+    foreach ($orgs as $o) {
+        $oid = (int) ($o['organization_id'] ?? 0);
+        if ($oid > 0) {
+            $orgIds[] = $oid;
+        }
+    }
+    if (empty($orgIds)) {
+        return 0;
+    }
+    $placeholders = implode(',', array_fill(0, count($orgIds), '?'));
+    $types = 'ii' . str_repeat('i', count($orgIds));
+    $sql = "SELECT COUNT(*) c FROM org_boss_reports r\n"
+        . "LEFT JOIN org_boss_report_reads rd ON rd.report_id = r.id AND rd.user_id = ?\n"
+        . "WHERE r.empresa_id = ? AND r.organization_id IN ($placeholders) AND rd.id IS NULL";
+    $stmt = $mysqli->prepare($sql);
+    if (!$stmt) {
+        return 0;
+    }
+    $params = [$userId, $empresaId];
+    foreach ($orgIds as $oid) {
+        $params[] = $oid;
+    }
+    $stmt->bind_param($types, ...$params);
+    if (!$stmt->execute()) {
+        return 0;
+    }
+    return (int) ($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+}
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+function fetchOrgBossReportsForBoss($mysqli, int $userId, int $empresaId, int $limit = 20, int $offset = 0): array
+{
+    if ($userId <= 0 || !userOrgTicketsViewEnabled($mysqli, $userId, $empresaId)) {
+        return [];
+    }
+    ensureOrgBossReportReadsTable();
+    $orgs = getPortalOrganizationsForUser($mysqli, $userId, $empresaId);
+    $orgIds = [];
+    foreach ($orgs as $o) {
+        $oid = (int) ($o['organization_id'] ?? 0);
+        if ($oid > 0) {
+            $orgIds[] = $oid;
+        }
+    }
+    if (empty($orgIds)) {
+        return [];
+    }
+    $limit = max(1, $limit);
+    $offset = max(0, $offset);
+    $placeholders = implode(',', array_fill(0, count($orgIds), '?'));
+    $types = 'ii' . str_repeat('i', count($orgIds)) . 'ii';
+    $sql = "SELECT r.*, o.name AS org_name,\n"
+        . "s.firstname AS staff_first, s.lastname AS staff_last,\n"
+        . "tu.firstname AS target_first, tu.lastname AS target_last, tu.email AS target_email,\n"
+        . "(CASE WHEN rd.id IS NULL THEN 0 ELSE 1 END) AS is_read\n"
+        . "FROM org_boss_reports r\n"
+        . "JOIN organizations o ON o.id = r.organization_id AND o.empresa_id = r.empresa_id\n"
+        . "LEFT JOIN staff s ON s.id = r.staff_id\n"
+        . "LEFT JOIN users tu ON tu.id = r.target_user_id\n"
+        . "LEFT JOIN org_boss_report_reads rd ON rd.report_id = r.id AND rd.user_id = ?\n"
+        . "WHERE r.empresa_id = ? AND r.organization_id IN ($placeholders)\n"
+        . "ORDER BY r.created_at DESC\n"
+        . "LIMIT ? OFFSET ?";
+    $stmt = $mysqli->prepare($sql);
+    if (!$stmt) {
+        return [];
+    }
+    $params = [$userId, $empresaId];
+    foreach ($orgIds as $oid) {
+        $params[] = $oid;
+    }
+    $params[] = $limit;
+    $params[] = $offset;
+    $stmt->bind_param($types, ...$params);
+    if (!$stmt->execute()) {
+        return [];
+    }
+    $rows = [];
+    $res = $stmt->get_result();
+    while ($res && ($row = $res->fetch_assoc())) {
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
+function markOrgBossReportRead($mysqli, int $reportId, int $userId): void
+{
+    if ($reportId <= 0 || $userId <= 0 || !ensureOrgBossReportReadsTable()) {
+        return;
+    }
+    $stmt = $mysqli->prepare(
+        'INSERT INTO org_boss_report_reads (report_id, user_id, read_at) VALUES (?, ?, NOW())'
+        . ' ON DUPLICATE KEY UPDATE read_at = VALUES(read_at)'
+    );
+    if ($stmt) {
+        $stmt->bind_param('ii', $reportId, $userId);
+        $stmt->execute();
+    }
+}
+
+/**
+ * @return array{ok:bool,report_id?:int,error?:string}
+ */
+function saveOrgBossReportWithAttachments($mysqli, int $empresaId, int $staffId, int $organizationId, ?int $targetUserId, string $subject, string $bodyHtml, array $uploadedFiles = []): array
+{
+    if ($empresaId <= 0 || $staffId <= 0 || $organizationId <= 0) {
+        return ['ok' => false, 'error' => 'Datos inválidos'];
+    }
+    if (!ensureOrgBossReportAttachmentsTable()) {
+        return ['ok' => false, 'error' => 'No se pudo preparar la tabla de informes'];
+    }
+    $subject = trim($subject);
+    if ($subject === '') {
+        return ['ok' => false, 'error' => 'El asunto es obligatorio'];
+    }
+    if (mb_strlen($subject) > 255) {
+        $subject = mb_substr($subject, 0, 252) . '...';
+    }
+    $bodyHtml = trim($bodyHtml);
+    if ($bodyHtml === '') {
+        return ['ok' => false, 'error' => 'El mensaje es obligatorio'];
+    }
+    $bodyText = trim(strip_tags($bodyHtml));
+
+    $stmtOrg = $mysqli->prepare('SELECT id, name FROM organizations WHERE id = ? AND empresa_id = ? LIMIT 1');
+    if (!$stmtOrg) {
+        return ['ok' => false, 'error' => 'Organización no encontrada'];
+    }
+    $stmtOrg->bind_param('ii', $organizationId, $empresaId);
+    $stmtOrg->execute();
+    $orgRow = $stmtOrg->get_result()->fetch_assoc();
+    if (!$orgRow) {
+        return ['ok' => false, 'error' => 'Organización no válida'];
+    }
+    $orgName = (string) ($orgRow['name'] ?? '');
+
+    if ($targetUserId !== null && $targetUserId > 0) {
+        $users = fetchOrganizationUsers($mysqli, $empresaId, $organizationId, $orgName, 500, 0);
+        $valid = false;
+        foreach ($users as $u) {
+            if ((int) ($u['id'] ?? 0) === $targetUserId) {
+                $valid = true;
+                break;
+            }
+        }
+        if (!$valid) {
+            return ['ok' => false, 'error' => 'El usuario seleccionado no pertenece a la organización'];
+        }
+    } else {
+        $targetUserId = null;
+    }
+
+    if ($targetUserId !== null && $targetUserId > 0) {
+        $stmt = $mysqli->prepare(
+            'INSERT INTO org_boss_reports (empresa_id, staff_id, organization_id, target_user_id, subject, body_html, body_text, created_at, updated_at)'
+            . ' VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+        );
+        if (!$stmt) {
+            return ['ok' => false, 'error' => 'Error al guardar el informe'];
+        }
+        $stmt->bind_param('iiiisss', $empresaId, $staffId, $organizationId, $targetUserId, $subject, $bodyHtml, $bodyText);
+    } else {
+        $stmt = $mysqli->prepare(
+            'INSERT INTO org_boss_reports (empresa_id, staff_id, organization_id, target_user_id, subject, body_html, body_text, created_at, updated_at)'
+            . ' VALUES (?, ?, ?, NULL, ?, ?, ?, NOW(), NOW())'
+        );
+        if (!$stmt) {
+            return ['ok' => false, 'error' => 'Error al guardar el informe'];
+        }
+        $stmt->bind_param('iiisss', $empresaId, $staffId, $organizationId, $subject, $bodyHtml, $bodyText);
+    }
+    if (!$stmt->execute()) {
+        return ['ok' => false, 'error' => 'Error al guardar el informe'];
+    }
+    $reportId = (int) $mysqli->insert_id;
+    if ($reportId <= 0) {
+        return ['ok' => false, 'error' => 'Error al crear el informe'];
+    }
+
+    $allowedExt = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'webm', 'mov', 'mkv'];
+    $maxSize = 25 * 1024 * 1024;
+    $maxFiles = 10;
+    $storageDir = orgBossReportsStorageDir();
+    $saved = 0;
+
+    if (isset($uploadedFiles['name']) && is_array($uploadedFiles['name'])) {
+        $n = count($uploadedFiles['name']);
+        for ($i = 0; $i < $n && $saved < $maxFiles; $i++) {
+            $err = $uploadedFiles['error'][$i] ?? UPLOAD_ERR_NO_FILE;
+            if ($err !== UPLOAD_ERR_OK) {
+                continue;
+            }
+            $tmp = (string) ($uploadedFiles['tmp_name'][$i] ?? '');
+            if ($tmp === '' || !is_readable($tmp)) {
+                continue;
+            }
+            $size = (int) ($uploadedFiles['size'][$i] ?? 0);
+            if ($size <= 0 || $size > $maxSize) {
+                continue;
+            }
+            $orig = (string) ($uploadedFiles['name'][$i] ?? 'archivo');
+            $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+            if ($ext === '' || !in_array($ext, $allowedExt, true)) {
+                continue;
+            }
+            $mime = (string) ($uploadedFiles['type'][$i] ?? 'application/octet-stream');
+            if (class_exists('finfo')) {
+                $finfoObj = new finfo(FILEINFO_MIME_TYPE);
+                $det = @$finfoObj->file($tmp);
+                if (is_string($det) && $det !== '') {
+                    $mime = $det;
+                }
+            }
+            $safeName = 'obr_' . $reportId . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+            $dest = $storageDir . '/' . $safeName;
+            if (!@move_uploaded_file($tmp, $dest)) {
+                continue;
+            }
+            $relPath = 'uploads/org_boss_reports/' . $safeName;
+            $hash = @hash_file('sha256', $dest) ?: null;
+            $stmtA = $mysqli->prepare(
+                'INSERT INTO org_boss_report_attachments (report_id, empresa_id, original_filename, filename, mimetype, size, path, hash, created_at)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+            );
+            if ($stmtA) {
+                $stmtA->bind_param('iisssiss', $reportId, $empresaId, $orig, $safeName, $mime, $size, $relPath, $hash);
+                if ($stmtA->execute()) {
+                    $saved++;
+                }
+            }
+        }
+    }
+
+    $bosses = fetchOrganizationBosses($mysqli, $empresaId, $organizationId);
+    $portalUrl = rtrim((string) (defined('APP_URL') ? APP_URL : ''), '/') . '/upload/informe-jefe.php?id=' . $reportId;
+    $staffName = '';
+    if (function_exists('getCurrentUser')) {
+        $st = getCurrentUser();
+        if (is_array($st)) {
+            $staffName = trim((string) ($st['firstname'] ?? '') . ' ' . (string) ($st['lastname'] ?? ''));
+        }
+    }
+    if ($staffName === '') {
+        $staffName = 'Soporte técnico';
+    }
+    $subjMail = '[Informe] ' . $subject;
+    $bodyHtmlMail = '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;">'
+        . '<h2 style="color:#1e3a5f;">Nuevo informe de ' . htmlspecialchars($orgName) . '</h2>'
+        . '<p>El equipo de soporte (<strong>' . htmlspecialchars($staffName) . '</strong>) envió un informe para su revisión.</p>'
+        . '<p><strong>Asunto:</strong> ' . htmlspecialchars($subject) . '</p>'
+        . '<p><a href="' . htmlspecialchars($portalUrl) . '" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Ver informe</a></p>'
+        . '</div>';
+    $bodyTextMail = "Nuevo informe de $orgName\nAsunto: $subject\nVer: $portalUrl";
+
+    foreach ($bosses as $boss) {
+        $email = trim((string) ($boss['email'] ?? ''));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        if (function_exists('enqueueEmailJob')) {
+            enqueueEmailJob($email, $subjMail, $bodyHtmlMail, $bodyTextMail, [
+                'empresa_id' => $empresaId,
+                'context_type' => 'org_boss_report',
+                'context_id' => $reportId,
+            ]);
+        } elseif (class_exists('Mailer')) {
+            Mailer::send($email, $subjMail, $bodyHtmlMail, $bodyTextMail);
+        }
+    }
+    if (function_exists('triggerEmailQueueWorkerAsync')) {
+        triggerEmailQueueWorkerAsync();
+    }
+
+    return ['ok' => true, 'report_id' => $reportId];
+}
+
+/**
+ * Notifica a los encargados de la organización cuando se crea un nuevo ticket.
+ */
+function notifyOrgManagersOfNewTicket($mysqli, int $ticketId, int $empresaId): void
+{
+    if ($ticketId <= 0 || $empresaId <= 0 || !isset($mysqli) || !$mysqli) {
+        return;
+    }
+    
+    // Verificar si existe la tabla de organizaciones
+    $hasOrgs = dbTableExists('organizations');
+    if (!$hasOrgs) {
+        return;
+    }
+    $hasUserOrgs = dbTableExists('user_organizations');
+    
+    // Obtener detalles del ticket
+    $stmtT = $mysqli->prepare(
+        "SELECT t.ticket_number, t.subject, t.user_id, t.dept_id, d.name AS dept_name, 
+                u.firstname AS user_firstname, u.lastname AS user_lastname, u.email AS user_email, u.company AS user_company
+         FROM tickets t
+         LEFT JOIN users u ON u.id = t.user_id AND u.empresa_id = t.empresa_id
+         LEFT JOIN departments d ON d.id = t.dept_id AND d.empresa_id = t.empresa_id
+         WHERE t.id = ? AND t.empresa_id = ? LIMIT 1"
+    );
+    if (!$stmtT) {
+        return;
+    }
+    $stmtT->bind_param('ii', $ticketId, $empresaId);
+    if (!$stmtT->execute()) {
+        return;
+    }
+    $ticket = $stmtT->get_result()->fetch_assoc();
+    if (!$ticket) {
+        return;
+    }
+    
+    $ticketNumber = $ticket['ticket_number'];
+    $subject = $ticket['subject'];
+    $userId = (int)$ticket['user_id'];
+    $deptName = $ticket['dept_name'] ?? 'Soporte';
+    $userFirstname = $ticket['user_firstname'] ?? '';
+    $userLastname = $ticket['user_lastname'] ?? '';
+    $userEmail = $ticket['user_email'] ?? '';
+    $userFullname = trim($userFirstname . ' ' . $userLastname);
+    if ($userFullname === '') {
+        $userFullname = 'Cliente';
+    }
+    
+    if ($userId <= 0) {
+        return;
+    }
+    
+    // Obtener descripción del ticket (primer mensaje del hilo)
+    $bodyHtmlText = '';
+    $bodyEmailText = '';
+    $stmtTe = $mysqli->prepare(
+        "SELECT te.body
+         FROM thread_entries te
+         JOIN threads th ON th.id = te.thread_id
+         WHERE th.ticket_id = ? AND th.empresa_id = ?
+         ORDER BY te.id ASC
+         LIMIT 1"
+    );
+    if ($stmtTe) {
+        $stmtTe->bind_param('ii', $ticketId, $empresaId);
+        if ($stmtTe->execute()) {
+            $teRow = $stmtTe->get_result()->fetch_assoc();
+            if ($teRow && !empty($teRow['body'])) {
+                $bodyHtmlText = $teRow['body'];
+                $bodyEmailText = trim(str_replace("\xC2\xA0", ' ', html_entity_decode(strip_tags((string)$bodyHtmlText), ENT_QUOTES, 'UTF-8')));
+            }
+        }
+    }
+    
+    // Obtener encargados de la organización (org_tickets_view = 1) a los que pertenece el usuario
+    // Excluir al propio creador del ticket ($userId) para evitar auto-notificaciones.
+    $managers = [];
+    
+    if ($hasUserOrgs) {
+        $sql = "SELECT DISTINCT 
+                    u_manager.id AS manager_id,
+                    u_manager.email AS manager_email,
+                    u_manager.firstname AS manager_firstname,
+                    u_manager.lastname AS manager_lastname,
+                    o.name AS organization_name
+                FROM organizations o
+                INNER JOIN (
+                    SELECT uo.organization_id, uo.user_id, uo.empresa_id
+                    FROM user_organizations uo
+                    UNION
+                    SELECT o_fallback.id AS organization_id, u_fallback.id AS user_id, u_fallback.empresa_id
+                    FROM users u_fallback
+                    INNER JOIN organizations o_fallback ON o_fallback.name = u_fallback.company AND o_fallback.empresa_id = u_fallback.empresa_id
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM user_organizations uo_chk
+                        WHERE uo_chk.user_id = u_fallback.id AND uo_chk.empresa_id = u_fallback.empresa_id
+                    )
+                ) target_user_orgs ON target_user_orgs.organization_id = o.id AND target_user_orgs.empresa_id = o.empresa_id
+                INNER JOIN (
+                    SELECT uo_m.organization_id, u_m.id, u_m.email, u_m.firstname, u_m.lastname, u_m.empresa_id
+                    FROM users u_m
+                    INNER JOIN user_organizations uo_m ON uo_m.user_id = u_m.id AND uo_m.empresa_id = u_m.empresa_id
+                    WHERE u_m.org_tickets_view = 1 AND u_m.status = 'active'
+                    UNION
+                    SELECT o_m.id AS organization_id, u_m.id, u_m.email, u_m.firstname, u_m.lastname, u_m.empresa_id
+                    FROM users u_m
+                    INNER JOIN organizations o_m ON o_m.name = u_m.company AND o_m.empresa_id = u_m.empresa_id
+                    WHERE u_m.org_tickets_view = 1 AND u_m.status = 'active'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM user_organizations uo_chk2
+                          WHERE uo_chk2.user_id = u_m.id AND uo_chk2.empresa_id = u_m.empresa_id
+                      )
+                ) u_manager ON u_manager.organization_id = o.id AND u_manager.empresa_id = o.empresa_id
+                WHERE target_user_orgs.user_id = ? AND o.empresa_id = ? AND u_manager.id != ?";
+        $stmtM = $mysqli->prepare($sql);
+        if ($stmtM) {
+            $stmtM->bind_param('iii', $userId, $empresaId, $userId);
+        }
+    } else {
+        $sql = "SELECT DISTINCT 
+                    u_manager.id AS manager_id,
+                    u_manager.email AS manager_email,
+                    u_manager.firstname AS manager_firstname,
+                    u_manager.lastname AS manager_lastname,
+                    o.name AS organization_name
+                FROM organizations o
+                INNER JOIN users u_target ON u_target.company = o.name AND u_target.empresa_id = o.empresa_id
+                INNER JOIN users u_manager ON u_manager.company = o.name AND u_manager.empresa_id = o.empresa_id
+                WHERE u_target.id = ? AND o.empresa_id = ? AND u_manager.org_tickets_view = 1 AND u_manager.status = 'active' AND u_manager.id != ?";
+        $stmtM = $mysqli->prepare($sql);
+        if ($stmtM) {
+            $stmtM->bind_param('iii', $userId, $empresaId, $userId);
+        }
+    }
+    
+    if ($stmtM && $stmtM->execute()) {
+        $res = $stmtM->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $managers[] = $row;
+        }
+    }
+    
+    if (empty($managers)) {
+        return;
+    }
+    
+    // Encolar/Enviar correo a cada encargado de la organización
+    $viewUrl = rtrim((string)(defined('APP_URL') ? APP_URL : ''), '/') . '/upload/view-ticket.php?from=org&id=' . (int)$ticketId;
+    $appName = defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets';
+    
+    $mailSentCount = 0;
+    foreach ($managers as $mgr) {
+        $mgrEmail = strtolower(trim((string)($mgr['manager_email'] ?? '')));
+        if ($mgrEmail === '' || !filter_var($mgrEmail, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        
+        $orgName = $mgr['organization_name'] ?? 'Organización';
+        $mgrName = trim(($mgr['manager_firstname'] ?? '') . ' ' . ($mgr['manager_lastname'] ?? ''));
+        if ($mgrName === '') {
+            $mgrName = 'Encargado';
+        }
+        
+        $emailSubject = '[Nuevo ticket] Org: ' . $orgName . ' - Usuario: ' . $userFullname;
+        
+        $bodyHtml = '
+            <div style="font-family: Segoe UI, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #334155;">
+                <h2 style="color: #1e3a5f; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">Nuevo ticket de tu organización</h2>
+                <p>Estimado/a <strong>' . htmlspecialchars($mgrName) . '</strong>,</p>
+                <p>Se ha creado un nuevo ticket para la organización <strong>' . htmlspecialchars($orgName) . '</strong>, por el usuario <strong>' . htmlspecialchars($userFullname) . '</strong>.</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.95rem;">
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; width: 120px;"><strong>Número:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">' . htmlspecialchars($ticketNumber) . '</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; width: 120px;"><strong>Asunto:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">' . htmlspecialchars($subject) . '</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; width: 120px;"><strong>Usuario:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">' . htmlspecialchars($userFullname) . '</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; width: 120px;"><strong>Departamento:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">' . htmlspecialchars($deptName) . '</td></tr>
+                </table>';
+                
+        if ($bodyEmailText !== '') {
+            $bodyHtml .= '
+                <p><strong>Descripción:</strong></p>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin: 12px 0; font-style: italic;">' . nl2br(htmlspecialchars($bodyEmailText)) . '</div>';
+        }
+        
+        $bodyHtml .= '
+                <p style="margin-top: 20px;"><a href="' . htmlspecialchars($viewUrl) . '" style="display: inline-block; background: #2563eb; color: white; padding: 10px 18px; text-decoration: none; border-radius: 6px; font-weight: bold;">Ver ticket en el Portal</a></p>
+                <p style="color: #64748b; font-size: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 24px;">' . htmlspecialchars($appName) . '</p>
+            </div>';
+            
+        $bodyText = "Nuevo ticket de tu organización\n\n"
+            . "Se ha creado un nuevo ticket para la organización: " . $orgName . "\n"
+            . "Usuario: " . $userFullname . "\n"
+            . "Número: " . $ticketNumber . "\n"
+            . "Asunto: " . $subject . "\n"
+            . "Departamento: " . $deptName . "\n\n"
+            . ($bodyEmailText !== '' ? "Descripción:\n" . $bodyEmailText . "\n\n" : "")
+            . "Ver ticket: " . $viewUrl . "\n\n"
+            . $appName;
+            
+        if (function_exists('enqueueEmailJob')) {
+            if (enqueueEmailJob($mgrEmail, $emailSubject, $bodyHtml, $bodyText, ['empresa_id' => $empresaId, 'context_type' => 'org_manager_notify', 'context_id' => $ticketId])) {
+                $mailSentCount++;
+            }
+        } else {
+            Mailer::send($mgrEmail, $emailSubject, $bodyHtml, $bodyText);
+            $mailSentCount++;
+        }
+    }
+    
+    if ($mailSentCount > 0 && function_exists('triggerEmailQueueWorkerAsync')) {
+        triggerEmailQueueWorkerAsync(40);
+    }
+    
+    addLog('org_manager_notify_summary', 'Se notificó a ' . $mailSentCount . ' encargados de organización para el ticket ' . $ticketNumber, 'ticket', $ticketId, 'staff', 0);
 }

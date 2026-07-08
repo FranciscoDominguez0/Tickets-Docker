@@ -229,12 +229,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             if ($hasStaffDepartmentsTableDel) {
                 // New model: check staff_departments
-                $stmtCntSql = "SELECT COUNT(DISTINCT sd.staff_id) c FROM staff_departments sd WHERE sd.dept_id IN ($placeholders)";
+                $stmtCntSql = "SELECT COUNT(DISTINCT sd.staff_id) c FROM staff_departments sd";
+                if ($staffHasEmpresa) {
+                    $stmtCntSql .= " JOIN staff s ON s.id = sd.staff_id";
+                }
+                $stmtCntSql .= " WHERE sd.dept_id IN ($placeholders)";
+                if ($staffHasEmpresa) {
+                    $stmtCntSql .= " AND s.empresa_id = ?";
+                }
             } else {
                 // Legacy model
                 $stmtCntSql = "SELECT COUNT(*) c FROM staff WHERE dept_id IN ($placeholders)";
+                if ($staffHasEmpresa) {
+                    $stmtCntSql .= " AND empresa_id = ?";
+                }
             }
-            if ($staffHasEmpresa) $stmtCntSql .= " AND empresa_id = ?";
             $stmtCnt = $mysqli->prepare($stmtCntSql);
             if ($stmtCnt) {
                 if ($staffHasEmpresa) {
@@ -762,31 +771,31 @@ ob_start();
 }
 
 body.dark-mode {
-    --dept-card-bg: #111111;
+    --dept-card-bg: #000000;
     --dept-card-border: #2a2a2a;
-    --dept-stat-bg: #1a1a1a;
+    --dept-stat-bg: #000000;
     --dept-table-header-bg: #161616;
-    --dept-table-row-hover: #1a1a1a;
+    --dept-table-row-hover: #000000;
     --dept-text-main: #e5e5e5;
     --dept-text-muted: #888888;
     --dept-badge-active-bg: rgba(16, 185, 129, 0.15);
     --dept-badge-active-color: #34d399;
-    --dept-badge-inactive-bg: #222222;
+    --dept-badge-inactive-bg: #000000;
     --dept-badge-inactive-color: #888888;
-    --dept-badge-count-bg: #222222;
+    --dept-badge-count-bg: #000000;
     --dept-badge-count-color: #e5e5e5;
-    --dept-btn-perm-hover-bg: #2a2a2a;
+    --dept-btn-perm-hover-bg: #000000;
     --modal-close-filter: invert(1);
 
     /* Mobile variables */
-    --role-mobile-card-bg: #111111;
+    --role-mobile-card-bg: #000000;
     --role-mobile-card-border: #2a2a2a;
-    --role-mobile-stat-bg: #1a1a1a;
+    --role-mobile-stat-bg: #000000;
     --role-mobile-stat-text: #f1f5f9;
     --role-mobile-card-title: #f8fafc;
     --role-mobile-card-meta: #94a3b8;
     --role-mobile-dashed-border: #2a2a2a;
-    --role-mobile-action-btn-bg: #1a1a1a;
+    --role-mobile-action-btn-bg: #000000;
     --role-mobile-action-btn-color: #94a3b8;
     --dept-link-color: #94a3b8;
 }
@@ -839,7 +848,7 @@ body.dark-mode {
 }
 
 body.dark-mode .premium-table tr.selected td {
-    background: #18181b !important;
+    background: #000000 !important;
 }
 
 .premium-table tr:hover td {
@@ -965,7 +974,7 @@ body.dark-mode .agent-count-badge.active-tickets {
 }
 
 body.dark-mode .dropdown-item:hover {
-    background-color: #222222 !important;
+    background-color: #000000 !important;
     color: #ffffff !important;
 }
 
@@ -1044,7 +1053,7 @@ body.dark-mode .dropdown-item:hover {
     }
     body.dark-mode .premium-table tbody tr.selected {
         border-color: #404040 !important;
-        background: #18181b !important;
+        background: #000000 !important;
     }
     .premium-table tbody td.d-md-none {
         display: block !important;

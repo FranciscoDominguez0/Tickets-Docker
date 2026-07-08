@@ -38,11 +38,17 @@ if ($mobileInitials === '') $mobileInitials = 'U';
             case 'org_view_on': $alertMsg = 'El usuario ha sido asignado como Encargado de su Organización.'; break;
             case 'org_view_off': $alertMsg = 'El usuario ha sido removido como Encargado de Organización.'; break;
             case 'org_view_error': $alertMsg = 'No se pudo actualizar el rol de encargado. Intente de nuevo.'; break;
+            case 'org_boss_conflict': $alertMsg = 'Error: La organización ya tiene otro encargado asignado.'; break;
+            case 'org_assign_conflict': $alertMsg = 'Error: Esta organización ya tiene un encargado.'; break;
         }
     }
-    if ($alertMsg): ?>
-        <div class="alert alert-success alert-dismissible fade show mx-3 mt-3" role="alert" style="border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <i class="bi bi-check-circle-fill me-2"></i> <?php echo html($alertMsg); ?>
+    if ($alertMsg): 
+        $isError = strpos($msg, 'error') !== false || strpos($msg, 'conflict') !== false;
+        $alertClass = $isError ? 'alert-danger' : 'alert-success';
+        $alertIcon = $isError ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill';
+    ?>
+        <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show mx-3 mt-3" role="alert" style="border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <i class="bi <?php echo $alertIcon; ?> me-2"></i> <?php echo html($alertMsg); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
         </div>
         <script>
@@ -66,7 +72,12 @@ if ($mobileInitials === '') $mobileInitials = 'U';
             <div class="user-view-mobile-ident">
                 <div class="user-view-mobile-avatar"><?php echo html($mobileInitials); ?></div>
                 <div class="user-view-mobile-title">
-                    <div class="user-view-mobile-name"><?php echo html($mobileName !== '' ? $mobileName : $mobileEmail); ?></div>
+                    <div class="user-view-mobile-name">
+                        <?php echo html($mobileName !== '' ? $mobileName : $mobileEmail); ?>
+                        <?php if (!empty($viewUserOrgTicketsView)): ?>
+                            <i class="bi bi-star-fill text-warning ms-1" style="font-size: 0.9rem;" title="Encargado de Org."></i>
+                        <?php endif; ?>
+                    </div>
                     <div class="user-view-mobile-sub">
                         <i class="bi bi-envelope-at" style="opacity: 0.6; margin-right: 3px;"></i><?php echo html($mobileEmail); ?>
                     </div>
@@ -471,7 +482,7 @@ if ($mobileInitials === '') $mobileInitials = 'U';
                         }
                         /* Dark mode */
                         body.dark-mode #userViewGearMenu {
-                            background: #111113;
+                            background: #000000;
                             border: 1px solid #27272a;
                             box-shadow: 0 20px 50px rgba(0,0,0,0.55);
                         }
@@ -501,7 +512,7 @@ if ($mobileInitials === '') $mobileInitials = 'U';
                             color: #52525b;
                         }
                         body.dark-mode #userViewGearMenu .uvgm-sep {
-                            background: linear-gradient(90deg, transparent 0%, #27272a 50%, transparent 100%);
+                            background: linear-gradient(90deg, transparent 0%, #000000 50%, transparent 100%);
                         }
                     </style>
                     <div class="uvgm-header">Opciones de Usuario</div>
@@ -671,7 +682,12 @@ if ($mobileInitials === '') $mobileInitials = 'U';
                 <div class="user-view-avatar uvp-avatar" aria-hidden="true"><?php echo html($mobileInitials); ?></div>
                 <div class="uvp-hero-info">
                     <div class="uvp-hero-title-row">
-                        <h2 class="uvp-display-name"><?php echo html($viewUserName); ?></h2>
+                        <h2 class="uvp-display-name">
+                            <?php echo html($viewUserName); ?>
+                            <?php if (!empty($viewUserOrgTicketsView)): ?>
+                                <i class="bi bi-star-fill text-warning ms-2" style="font-size: 1.2rem;" title="Encargado de Org."></i>
+                            <?php endif; ?>
+                        </h2>
                         <span class="user-view-status-badge <?php echo html($statusKey); ?> uvp-hero-badge"><?php echo html($statusLabel); ?></span>
                     </div>
                     <p class="uvp-email">
@@ -767,6 +783,7 @@ if ($mobileInitials === '') $mobileInitials = 'U';
             <li><a class="tab <?php echo $activeTab === 'tickets' ? 'active' : ''; ?>" href="users.php?id=<?php echo $uid; ?>&t=tickets"><i class="bi bi-ticket-perforated"></i> Tickets</a></li>
             <li><a class="tab <?php echo $activeTab === 'notes' ? 'active' : ''; ?>" href="users.php?id=<?php echo $uid; ?>&t=notes"><i class="bi bi-pin-angle"></i> Notas</a></li>
         </ul>
+
 
         <div class="user-view-tab-content" id="tab-tickets" style="display:<?php echo $activeTab === 'tickets' ? 'block' : 'none'; ?>">
             <?php if (empty($userTickets)): ?>

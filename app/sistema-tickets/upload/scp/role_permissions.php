@@ -44,56 +44,13 @@ if ($currentStaffRole !== 'admin') {
     exit;
 }
 
-$ensureRolesTable = function () use ($mysqli) {
-    if (!isset($mysqli) || !$mysqli) return false;
-    $sql = "CREATE TABLE IF NOT EXISTS roles (\n"
-        . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  name VARCHAR(100) NOT NULL,\n"
-        . "  is_enabled TINYINT(1) NOT NULL DEFAULT 1,\n"
-        . "  created DATETIME DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n"
-        . "  UNIQUE KEY uq_roles_name (name)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-    return (bool)$mysqli->query($sql);
+$ensureRolesTable = function () {
+    return true;
 };
 $ensureRolesTable();
 
-$ensureRolePermissionsTable = function () use ($mysqli) {
-    if (!isset($mysqli) || !$mysqli) return false;
-    $sql = "CREATE TABLE IF NOT EXISTS role_permissions (\n"
-        . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
-        . "  empresa_id INT NOT NULL DEFAULT 1,\n"
-        . "  role_name VARCHAR(100) NOT NULL,\n"
-        . "  perm_key VARCHAR(120) NOT NULL,\n"
-        . "  is_enabled TINYINT(1) NOT NULL DEFAULT 1,\n"
-        . "  created DATETIME DEFAULT CURRENT_TIMESTAMP,\n"
-        . "  updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n"
-        . "  UNIQUE KEY uq_role_perm (empresa_id, role_name, perm_key),\n"
-        . "  KEY idx_role (role_name)\n"
-        . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-    $ok = (bool)$mysqli->query($sql);
-
-    try {
-        $res = $mysqli->query("SHOW COLUMNS FROM role_permissions LIKE 'empresa_id'");
-        $hasEmpresaId = ($res && $res->num_rows > 0);
-        if (!$hasEmpresaId) {
-            $mysqli->query("ALTER TABLE role_permissions ADD COLUMN empresa_id INT NOT NULL DEFAULT 1");
-            $mysqli->query("ALTER TABLE role_permissions ADD INDEX idx_role_perm_empresa (empresa_id, role_name)");
-        }
-
-        $idxOld = $mysqli->query("SHOW INDEX FROM role_permissions WHERE Key_name = 'uq_role_perm'");
-        if ($idxOld && $idxOld->num_rows > 0) {
-            $mysqli->query("ALTER TABLE role_permissions DROP INDEX uq_role_perm");
-        }
-
-        $idxNew = $mysqli->query("SHOW INDEX FROM role_permissions WHERE Key_name = 'uq_role_perm_empresa_role_perm'");
-        if (!$idxNew || $idxNew->num_rows < 1) {
-            $mysqli->query("ALTER TABLE role_permissions ADD UNIQUE KEY uq_role_perm_empresa_role_perm (empresa_id, role_name, perm_key)");
-        }
-    } catch (Throwable $e) {
-    }
-
-    return $ok;
+$ensureRolePermissionsTable = function () {
+    return true;
 };
 $ensureRolePermissionsTable();
 
@@ -104,15 +61,7 @@ if ($roleName === '') {
     exit;
 }
 
-$rolesHasEmpresaId = false;
-if (isset($mysqli) && $mysqli) {
-    try {
-        $res = $mysqli->query("SHOW COLUMNS FROM roles LIKE 'empresa_id'");
-        $rolesHasEmpresaId = ($res && $res->num_rows > 0);
-    } catch (Throwable $e) {
-        $rolesHasEmpresaId = false;
-    }
-}
+$rolesHasEmpresaId = true;
 
 $stmtRole = $rolesHasEmpresaId
     ? $mysqli->prepare('SELECT name FROM roles WHERE empresa_id = ? AND name = ? LIMIT 1')
@@ -175,12 +124,16 @@ $permissionGroups = [
         'user.manage' => ['title' => 'Gestionar usuarios', 'desc' => 'Habilidad para crear, editar, eliminar y realizar acciones en usuarios'],
         'org.view' => ['title' => 'Ver organizaciones', 'desc' => 'Habilidad para ver el listado y detalles de organizaciones'],
         'org.manage' => ['title' => 'Gestionar organizaciones', 'desc' => 'Habilidad para crear, editar y eliminar organizaciones'],
+        'org.reports' => ['title' => 'Informes a jefes', 'desc' => 'Crear y enviar informes a jefes de organización en su panel'],
         'agent.directory' => ['title' => 'Ver directorio de agentes', 'desc' => 'Habilidad para acceder al directorio del agente'],
         'agent.map' => ['title' => 'Ver mapa de agentes', 'desc' => 'Habilidad para acceder al mapa de agentes en tiempo real'],
         'stats.view' => ['title' => 'Ver estadísticas', 'desc' => 'Habilidad para visualizar el panel de estadísticas.'],
     ],
     'Administración' => [
         'admin.access' => ['title' => 'Acceso al Panel de Administración', 'desc' => 'Habilidad para acceder a la configuración, agentes, roles y configuraciones de correo electrónico.'],
+    ],
+    'Cotizaciones' => [
+        'quote.view' => ['title' => 'Acceso a Cotizaciones', 'desc' => 'Habilidad para ver y gestionar cotizaciones.'],
     ],
 ];
 
@@ -292,6 +245,10 @@ if (!function_exists('renderPermissionGroupCard')) {
             $icon = 'bi-sliders';
             $headerColor = '#dc2626';
             $bgColor = 'rgba(220, 38, 38, 0.04)';
+        } elseif ($groupTitle === 'Cotizaciones') {
+            $icon = 'bi-file-earmark-text-fill';
+            $headerColor = '#ea580c';
+            $bgColor = 'rgba(234, 88, 12, 0.04)';
         }
         $groupId = 'group_' . preg_replace('/[^a-z0-9]/', '', strtolower($groupTitle));
         ?>
@@ -403,12 +360,12 @@ ob_start();
 
     /* === MODO OSCURO SOPORTE === */
     body.dark-mode .card {
-        background: #111111 !important;
+        background: #000000 !important;
         border: 1px solid #2a2a2a !important;
     }
     body.dark-mode .card-header {
         background: #161616 !important;
-        border-bottom: 1px solid #2a2a2a !important;
+        border-bottom: 1px solid #000000 !important;
     }
     body.dark-mode .card-header h2 {
         color: #e5e5e5 !important;
@@ -417,7 +374,7 @@ ob_start();
         color: #888 !important;
     }
     body.dark-mode .perm-item-card {
-        background: #1a1a1a !important;
+        background: #000000 !important;
         border-color: #2a2a2a !important;
     }
     body.dark-mode .perm-item-card:hover {
@@ -438,7 +395,7 @@ ob_start();
         color: #e5e5e5 !important;
     }
     body.dark-mode .action-bar-container {
-        background: #111111 !important;
+        background: #000000 !important;
         border-color: #2a2a2a !important;
     }
 </style>
@@ -464,6 +421,9 @@ ob_start();
                     <?php 
                     if (isset($permissionGroups['Tareas'])) {
                         renderPermissionGroupCard('Tareas', $permissionGroups['Tareas'], $enabledPerms);
+                    }
+                    if (isset($permissionGroups['Cotizaciones'])) {
+                        renderPermissionGroupCard('Cotizaciones', $permissionGroups['Cotizaciones'], $enabledPerms);
                     }
                     if (isset($permissionGroups['Directorio, Mapa y Estadísticas'])) {
                         renderPermissionGroupCard('Directorio, Mapa y Estadísticas', $permissionGroups['Directorio, Mapa y Estadísticas'], $enabledPerms);

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 $endDate = new DateTime('today');
 $endDate->setTime(23, 59, 59);
@@ -431,7 +431,7 @@ $resolvedTotals = array_map(function ($r) { return $r['total']; }, $resolvedByMo
     
     /* Dark Mode Overrides para Estadísticas */
     body.dark-mode .stats-page .card {
-        background: #111;
+        background: #000000;
         border-color: #222;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
@@ -593,7 +593,7 @@ $resolvedTotals = array_map(function ($r) { return $r['total']; }, $resolvedByMo
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="../js/vendor/chart.umd.min.js"></script>
 <script>
 (function () {
     function safeParseJson(s, fallback) {

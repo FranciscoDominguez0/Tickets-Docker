@@ -1,36 +1,29 @@
-# Configuración sensible
-.env
-.env.*
+# Secrets / config
 .config.php
 
-# Composer
-vendor/
+# Local env files
+.env
+.env.*
 
-# Logs
-*.log
-logs/
-
-# Cache y temporales
-cache/
-tmp/
-
-# Uploads de usuarios
-publico/uploads/
-upload/uploads/
-
-# Permitir .htaccess dentro de uploads
-!publico/uploads/**/.htaccess
-!upload/uploads/**/.htaccess
-
-# Datos locales de BD
-mysql_data/
-db_data/
-
-# IDE
+# OS / IDE
+Thumbs.db
+.DS_Store
 .vscode/
 .idea/
 
-# Windows / Mac
-Thumbs.db
-.DS_Store
-desktop.ini
+# PHP / composer
+vendor/
+composer.lock
+
+# Uploads (user-generated)
+publico/uploads/
+upload/uploads/
+
+# Allow security hardening files inside ignored uploads
+!publico/uploads/**/.htaccess
+!upload/uploads/**/.htaccess
+
+# Logs / cache
+*.log
+cache/
+tmp/

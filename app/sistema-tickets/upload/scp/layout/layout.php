@@ -40,27 +40,17 @@ if (isset($mysqli) && $mysqli && isset($_SESSION['staff_id'])) {
     }
 }
 
-// Verificar si el agente tiene tickets "En camino" para habilitar tracking
+// Verificar si el agente tiene tickets "En camino" o "En proceso" para habilitar tracking GPS
 $hasEnCamino = false;
 if (isset($mysqli) && $mysqli && isset($_SESSION['staff_id'])) {
-    // Asegurar tabla staff_locations con UNIQUE KEY para el staff_id
-    $mysqli->query("CREATE TABLE IF NOT EXISTS staff_locations (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        staff_id INT NOT NULL,
-        lat DECIMAL(10, 8) NOT NULL,
-        lng DECIMAL(11, 8) NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_staff (staff_id),
-        KEY idx_updated (updated_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-    // Buscamos tickets abiertos asignados a este staff con status_id en (2=En Camino, 3=En proceso)
-    $resEc = $mysqli->query("SELECT 1 FROM tickets WHERE staff_id = " . (int)$_SESSION['staff_id'] . " AND status_id IN (2, 3) AND closed IS NULL LIMIT 1");
+    $sidEc = (int)$_SESSION['staff_id'];
+    $eidEc = (int)($_SESSION['empresa_id'] ?? 1);
+    $resEc = $mysqli->query("SELECT 1 FROM tickets WHERE staff_id = $sidEc AND status_id IN (2, 3) AND empresa_id = $eidEc AND closed IS NULL LIMIT 1");
     $hasEnCamino = ($resEc && $resEc->num_rows > 0);
-    
-    // Si no tiene tickets en camino, limpiamos su ubicación para no dejar datos huérfanos
-    if (!$hasEnCamino) {
-        $mysqli->query("DELETE FROM staff_locations WHERE staff_id = " . (int)$_SESSION['staff_id']);
+
+    // Si no tiene tickets activos, limpiar ubicación huérfana (solo si la tabla existe)
+    if (!$hasEnCamino && dbTableExists('staff_locations')) {
+        $mysqli->query("DELETE FROM staff_locations WHERE staff_id = $sidEc");
     }
 }
 
@@ -88,8 +78,11 @@ $allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
     <title>Panel Agente - <?php echo APP_NAME; ?></title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <!-- Bootstrap CSS local (sin latencia CDN) -->
+    <link rel="stylesheet" href="css/vendor/bootstrap.min.css">
+    <!-- Bootstrap Icons local + font-display:swap -->
+    <link rel="stylesheet" href="css/vendor/bootstrap-icons.css">
+    <style>@font-face{font-family:"bootstrap-icons";src:url("css/vendor/fonts/bootstrap-icons.woff2") format("woff2"),url("css/vendor/fonts/bootstrap-icons.woff") format("woff");font-display:swap}</style>
     <link rel="stylesheet" href="css/scp.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/scp.css'); ?>">
     <?php if (isset($currentRoute) && $currentRoute === 'dashboard'): ?>
     <link rel="stylesheet" href="css/dashboard.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/dashboard.css'); ?>">
@@ -100,8 +93,11 @@ $allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
     <?php if (isset($currentRoute) && $currentRoute === 'users'): ?>
     <link rel="stylesheet" href="css/users.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/users.css'); ?>">
     <?php endif; ?>
-    <?php if (isset($currentRoute) && in_array($currentRoute, ['tickets', 'reportes'])): ?>
+    <?php if (isset($currentRoute) && in_array($currentRoute, ['tickets', 'reportes', 'informes_jefes', 'cotizaciones'])): ?>
     <link rel="stylesheet" href="css/tickets.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/tickets.css'); ?>">
+    <?php endif; ?>
+    <?php if (isset($currentRoute) && $currentRoute === 'tickets'): ?>
+    <link rel="stylesheet" href="css/vendor/summernote-lite.min.css">
     <?php endif; ?>
     <?php if (isset($currentRoute) && $currentRoute === 'orgs'): ?>
     <link rel="stylesheet" href="css/orgs.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/orgs.css'); ?>">
@@ -217,7 +213,7 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="dropdown">
-                    <button class="btn position-relative scp-notif-btn scp-notif-toggle <?php echo $notifCount > 0 ? 'has-new' : ''; ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notificaciones">
+                    <button class="btn position-relative scp-notif-btn scp-notif-toggle <?php echo $notifCount > 0 ? 'has-new' : ''; ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notificaciones" aria-label="Notificaciones">
                         <i class="bi bi-bell"></i>
                         <?php if ($notifCount > 0): ?>
                             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
@@ -307,7 +303,7 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                         $initials = 'U';
                     }
                     ?>
-                    <button class="dropdown-toggle scp-profile-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <button class="dropdown-toggle scp-profile-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Perfil de usuario">
                         <span class="scp-profile-avatar" aria-hidden="true"><?php echo html($initials); ?></span>
                         <span class="scp-profile-name"><?php echo html($staffName !== '' ? $staffName : 'Perfil'); ?></span>
                     </button>
@@ -408,7 +404,10 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                     </li>
                     <li class="sidebar-group">
                         <?php
-                        $isTicketsRoute = in_array($currentRoute, ['tickets', 'reportes']);
+                        $isTicketsRoute = in_array($currentRoute, ['tickets', 'reportes', 'informes_jefes']);
+                        $ticketsSidebarFilter = (string)($_GET['filter'] ?? '');
+                        $isTicketsBillingPendingNav = ($currentRoute === 'tickets' && $ticketsSidebarFilter === 'billing_pending');
+                        $isTicketsDetailsNav = ($currentRoute === 'tickets' && !$isTicketsBillingPendingNav);
                         $expandTickets = ($isTicketsRoute && $allowExpandedGroups);
                         ?>
                         <button type="button"
@@ -430,11 +429,11 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                         </button>
                         <ul id="tickets-subnav" class="sidebar-subnav <?php echo $expandTickets ? 'open' : ''; ?>">
                             <li>
-                                <a href="tickets.php" class="sidebar-link <?php echo $currentRoute === 'tickets' ? 'active' : ''; ?>">
+                                <a href="tickets.php" class="sidebar-link <?php echo $isTicketsDetailsNav ? 'active' : ''; ?>">
                                     <span class="icon">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <rect x="2" y="4" width="20" height="16" rx="2" stroke="<?php echo $currentRoute === 'tickets' ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6"/>
-                                            <path d="M7 9H17M7 14H13" stroke="<?php echo $currentRoute === 'tickets' ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6" stroke-linecap="round"/>
+                                            <rect x="2" y="4" width="20" height="16" rx="2" stroke="<?php echo $isTicketsDetailsNav ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6"/>
+                                            <path d="M7 9H17M7 14H13" stroke="<?php echo $isTicketsDetailsNav ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6" stroke-linecap="round"/>
                                         </svg>
                                     </span>
                                     Detalles
@@ -445,18 +444,44 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                             if ($canViewReports):
                             ?>
                             <li>
+                                <a href="tickets.php?filter=billing_pending" class="sidebar-link <?php echo $isTicketsBillingPendingNav ? 'active' : ''; ?>">
+                                    <span class="icon">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <circle cx="12" cy="12" r="9" stroke="<?php echo $isTicketsBillingPendingNav ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6"/>
+                                            <path d="M12 7v5l3 2" stroke="<?php echo $isTicketsBillingPendingNav ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                    </span>
+                                    Por facturar
+                                </a>
+                                                      <li>
                                 <a href="reporte_tickets.php" class="sidebar-link <?php echo $currentRoute === 'reportes' ? 'active' : ''; ?>">
                                     <span class="icon">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <path d="M4 19v-4m4 4v-8m4 8v-6m4 6v-10" stroke="<?php echo $currentRoute === 'reportes' ? '#ffffff' : '#64748b'; ?>" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
                                         </svg>
                                     </span>
-                                    Reportes
+                                    Hoja de reporte
                                 </a>
                             </li>
                             <?php endif; ?>
                         </ul>
                     </li>
+                    <?php if (roleHasPermission('quote.view')): ?>
+                    <li class="sidebar-group">
+                        <a href="cotizaciones.php" class="sidebar-link <?php echo ($currentRoute === 'cotizaciones') ? 'active' : ''; ?>">
+                            <span class="icon">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" stroke="<?php echo ($currentRoute === 'cotizaciones') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M14 2v6h6" stroke="<?php echo ($currentRoute === 'cotizaciones') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M16 13H8" stroke="<?php echo ($currentRoute === 'cotizaciones') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M16 17H8" stroke="<?php echo ($currentRoute === 'cotizaciones') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M10 9H8" stroke="<?php echo ($currentRoute === 'cotizaciones') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                            Reporte
+                        </a>
+                    </li>
+                    <?php endif; ?>
                     <?php
                     $canViewUsers = roleHasPermission('user.view');
                     $canViewOrgs = roleHasPermission('org.view');
@@ -696,8 +721,8 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
         <a id="customPopLink" href="#" class="n-btn">Ver solicitud</a>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/scp.js"></script>
+    <script src="js/vendor/bootstrap.bundle.min.js" defer></script>
+    <script src="js/scp.js" defer></script>
     <script>
         // Inicializar objeto de audio global para evadir políticas de Autoplay del navegador
         window.scpNotificationAudio = new Audio('../../publico/audio/notification.mp3');
@@ -862,15 +887,14 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
     <script src="js/users.js"></script>
     <?php endif; ?>
     <?php if (isset($currentRoute) && $currentRoute === 'dashboard'): ?>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="js/vendor/chart.umd.min.js"></script>
     <script src="js/dashboard.js?v=<?php echo (int)@filemtime(__DIR__ . '/../js/dashboard.js'); ?>"></script>
     <?php endif; ?>
     <?php if (isset($currentRoute) && $currentRoute === 'tickets'): ?>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/lang/summernote-es-ES.min.js"></script>
-    <script src="js/tickets.js"></script>
+    <script src="js/vendor/jquery-3.6.0.min.js" defer></script>
+    <script src="js/vendor/summernote-lite.min.js" defer></script>
+    <script src="js/vendor/summernote-es-ES.min.js" defer></script>
+    <script src="js/tickets.js" defer></script>
     <?php endif; ?>
     <?php if (isset($currentRoute) && $currentRoute === 'tasks'): ?>
     <script src="js/tasks.js"></script>

@@ -31,21 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$canManageOrgs) {
     exit;
 }
 
-// Crear tabla de organizaciones si no existe
-$mysqli->query("
-    CREATE TABLE IF NOT EXISTS organizations (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        name VARCHAR(255) UNIQUE NOT NULL,
-        address TEXT,
-        phone VARCHAR(50),
-        phone_ext VARCHAR(20),
-        website VARCHAR(255),
-        notes TEXT,
-        created DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        KEY idx_name (name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-");
+// La columna plain_text_emails ya existe en la tabla organizations.
 
 // Agregar organización
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do'] === 'add') {
@@ -56,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
         $org_phone_ext = trim($_POST['org_phone_ext'] ?? '');
         $org_website = trim($_POST['org_website'] ?? '');
         $org_notes = trim($_POST['org_notes'] ?? '');
+        $plain_text_emails = isset($_POST['plain_text_emails']) ? 1 : 0;
 
         $errors = [];
         if (!$org_name) {
@@ -70,8 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
             }
         }
         if (empty($errors)) {
-            $stmt = $mysqli->prepare("INSERT INTO organizations (empresa_id, name, address, phone, phone_ext, website, notes) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param('issssss', $eid, $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes);
+            $stmt = $mysqli->prepare("INSERT INTO organizations (empresa_id, name, address, phone, phone_ext, website, notes, plain_text_emails) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param('issssssi', $eid, $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes, $plain_text_emails);
             if ($stmt->execute()) {
                 header('Location: orgs.php?org=' . urlencode($org_name) . '&msg=org_added');
                 exit;
@@ -111,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
         $org_phone_ext = trim((string)($_POST['org_phone_ext'] ?? ''));
         $org_website = trim((string)($_POST['org_website'] ?? ''));
         $org_notes = trim((string)($_POST['org_notes'] ?? ''));
+        $plain_text_emails = isset($_POST['plain_text_emails']) ? 1 : 0;
 
         $errors = [];
         if ($old_name === '') $errors[] = 'Organización inválida.';
@@ -138,15 +126,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && $_POST['do']
             }
 
             if ($existingId > 0) {
-                $stmtU = $mysqli->prepare('UPDATE organizations SET name = ?, address = ?, phone = ?, phone_ext = ?, website = ?, notes = ? WHERE id = ? AND empresa_id = ?');
+                $stmtU = $mysqli->prepare('UPDATE organizations SET name = ?, address = ?, phone = ?, phone_ext = ?, website = ?, notes = ?, plain_text_emails = ? WHERE id = ? AND empresa_id = ?');
                 if ($stmtU) {
-                    $stmtU->bind_param('ssssssii', $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes, $existingId, $eid);
+                    $stmtU->bind_param('ssssssiii', $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes, $plain_text_emails, $existingId, $eid);
                     $stmtU->execute();
                 }
             } else {
-                $stmtI = $mysqli->prepare('INSERT INTO organizations (empresa_id, name, address, phone, phone_ext, website, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $stmtI = $mysqli->prepare('INSERT INTO organizations (empresa_id, name, address, phone, phone_ext, website, notes, plain_text_emails) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
                 if ($stmtI) {
-                    $stmtI->bind_param('issssss', $eid, $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes);
+                    $stmtI->bind_param('issssssi', $eid, $org_name, $org_address, $org_phone, $org_phone_ext, $org_website, $org_notes, $plain_text_emails);
                     $stmtI->execute();
                 }
             }
@@ -188,25 +176,34 @@ if (!empty($_GET['org'])) {
     $orgName = trim($_GET['org']);
 
     $orgData = null;
-    $stmt = $mysqli->prepare("SELECT * FROM organizations WHERE empresa_id = ? AND name = ? LIMIT 1");
-    $stmt->bind_param('is', $eid, $orgName);
-    $stmt->execute();
-    $orgData = $stmt->get_result()->fetch_assoc();
+    $stmt = $mysqli->prepare("SELECT o.*, 
+        (SELECT CONCAT(u.firstname, ' ', u.lastname) FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = o.id AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1) as org_boss_name,
+        (SELECT u.id FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = o.id AND u.org_tickets_view = 1 AND u.empresa_id = ? LIMIT 1) as org_boss_id
+        FROM organizations o WHERE o.empresa_id = ? AND o.name = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('iiis', $eid, $eid, $eid, $orgName);
+        $stmt->execute();
+        $orgData = $stmt->get_result()->fetch_assoc();
+    }
 
     if (!$orgData) {
         $stmt = $mysqli->prepare("
             SELECT u.company AS name, COUNT(DISTINCT u.id) AS user_count, COUNT(DISTINCT t.id) AS ticket_count,
                    SUM(CASE WHEN ts.name IN ('Abierto','En Progreso','Esperando Usuario') THEN 1 ELSE 0 END) AS open_tickets,
-                   MIN(u.created) AS since
+                   MIN(u.created) AS since,
+                   (SELECT CONCAT(u2.firstname, ' ', u2.lastname) FROM users u2 WHERE u2.company = u.company AND u2.org_tickets_view = 1 AND u2.empresa_id = ? LIMIT 1) as org_boss_name,
+                   (SELECT u2.id FROM users u2 WHERE u2.company = u.company AND u2.org_tickets_view = 1 AND u2.empresa_id = ? LIMIT 1) as org_boss_id
             FROM users u
             LEFT JOIN tickets t ON t.user_id = u.id AND t.empresa_id = ?
             LEFT JOIN ticket_status ts ON ts.id = t.status_id
             WHERE u.empresa_id = ? AND u.company = ?
             GROUP BY u.company
         ");
-        $stmt->bind_param('iis', $eid, $eid, $orgName);
-        $stmt->execute();
-        $orgData = $stmt->get_result()->fetch_assoc();
+        if ($stmt) {
+            $stmt->bind_param('iiiiis', $eid, $eid, $eid, $eid, $eid, $orgName);
+            $stmt->execute();
+            $orgData = $stmt->get_result()->fetch_assoc();
+        }
     }
 
     if (!$orgData) {
@@ -1052,6 +1049,16 @@ if (!empty($_GET['org'])) {
                                 ?>
                             </span>
                         </div>
+                        <?php if (!empty($orgInfo['org_boss_id'])): ?>
+                        <div class="org-mobile-detail-item">
+                            <span class="item-label"><i class="bi bi-person-badge me-1"></i> Encargado de Org.</span>
+                            <span class="item-value fw-bold">
+                                <a href="users.php?id=<?php echo $orgInfo['org_boss_id']; ?>" class="text-danger text-decoration-none">
+                                    <?php echo html($orgInfo['org_boss_name']); ?>
+                                </a>
+                            </span>
+                        </div>
+                        <?php endif; ?>
                         
                         <?php if (!empty($orgInfo['website'])): ?>
                             <div class="org-mobile-detail-item">
@@ -1140,6 +1147,16 @@ if (!empty($_GET['org'])) {
                             <label><i class="bi bi-geo-alt uvp-field-icon" aria-hidden="true"></i> Dirección</label>
                             <div class="value"><?php echo html(trim((string)($orgInfo['address'] ?? '')) !== '' ? (string)$orgInfo['address'] : '—'); ?></div>
                         </div>
+                        <?php if (!empty($orgInfo['org_boss_id'])): ?>
+                        <div class="uvp-field">
+                            <label><i class="bi bi-person-badge uvp-field-icon" aria-hidden="true"></i> Encargado de Org.</label>
+                            <div class="value fw-bold">
+                                <a href="users.php?id=<?php echo $orgInfo['org_boss_id']; ?>" class="text-danger text-decoration-none">
+                                    <?php echo html($orgInfo['org_boss_name']); ?>
+                                </a>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                         <?php if (!empty($orgInfo['notes'])): ?>
                         <div class="uvp-field" style="grid-column: 1 / -1;">
                             <label><i class="bi bi-journal-text uvp-field-icon" aria-hidden="true"></i> Notas internas</label>

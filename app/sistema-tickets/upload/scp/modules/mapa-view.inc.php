@@ -9,7 +9,7 @@ if (!isset($_SESSION['staff_id'])) exit;
 ?>
 
 <!-- Leaflet CSS -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/vendor/leaflet.css">
 
 <style>
     /* Estilos del Hero Principal (Adaptado de stats-hero) */
@@ -88,7 +88,7 @@ if (!isset($_SESSION['staff_id'])) exit;
         transition: all 0.3s ease;
     }
     body.dark-mode .map-sidebar {
-        background: #111111;
+        background: #000000;
         border-color: #333;
         box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
@@ -147,7 +147,7 @@ if (!isset($_SESSION['staff_id'])) exit;
         transform: scale(1.02);
     }
     body.dark-mode .agent-item:hover {
-        background: #1a1a1a;
+        background: #000000;
         border-color: #333;
     }
 
@@ -386,7 +386,7 @@ if (!isset($_SESSION['staff_id'])) exit;
 </div>
 
 <!-- Leaflet JS -->
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/vendor/leaflet.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -546,9 +546,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Polling cada 8 segundos
+    // Polling cada 15 segundos (reduce carga en BD)
     fetchLocations();
-    setInterval(fetchLocations, 8000);
+    setInterval(fetchLocations, 15000);
 
     // Botón Actualizar
     document.getElementById('refresh-map').addEventListener('click', function() {
@@ -569,9 +569,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 1200);
     });
 
-    // Ajustar tamaño del mapa tras carga inicial
-    setTimeout(() => map.invalidateSize(), 100);
-    setTimeout(() => map.invalidateSize(), 400);
-    setTimeout(() => map.invalidateSize(), 900);
+    // Ajustar tamaño del mapa: ResizeObserver + un solo fallback timeout
+    setTimeout(() => map.invalidateSize(), 200);
+    if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(() => map.invalidateSize());
+        ro.observe(document.getElementById('mapContainerOuter'));
+    }
 });
 </script>

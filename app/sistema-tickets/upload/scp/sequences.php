@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once '../../config.php';
 require_once '../../includes/helpers.php';
 require_once '../../includes/Auth.php';
@@ -14,42 +14,8 @@ $staff = getCurrentUser();
 $currentRoute = 'settings';
 
 $eid = empresaId();
-$staffHasEmpresaId = false;
-$sequencesHasEmpresaId = false;
-if (isset($mysqli) && $mysqli) {
-    try {
-        $res = $mysqli->query("SHOW COLUMNS FROM staff LIKE 'empresa_id'");
-        $staffHasEmpresaId = ($res && $res->num_rows > 0);
-    } catch (Throwable $e) {
-        $staffHasEmpresaId = false;
-    }
-    try {
-        $res = $mysqli->query("SHOW COLUMNS FROM sequences LIKE 'empresa_id'");
-        $sequencesHasEmpresaId = ($res && $res->num_rows > 0);
-    } catch (Throwable $e) {
-        $sequencesHasEmpresaId = false;
-    }
-
-    try {
-        if (!$sequencesHasEmpresaId) {
-            $mysqli->query("ALTER TABLE sequences ADD COLUMN empresa_id INT NOT NULL DEFAULT 1");
-            $mysqli->query("ALTER TABLE sequences ADD INDEX idx_sequences_empresa (empresa_id)");
-            $res = $mysqli->query("SHOW COLUMNS FROM sequences LIKE 'empresa_id'");
-            $sequencesHasEmpresaId = ($res && $res->num_rows > 0);
-        }
-        if ($sequencesHasEmpresaId) {
-            $idx = $mysqli->query("SHOW INDEX FROM sequences WHERE Key_name = 'uq_sequences_name'");
-            if ($idx && $idx->num_rows > 0) {
-                $mysqli->query("ALTER TABLE sequences DROP INDEX uq_sequences_name");
-            }
-            $idx2 = $mysqli->query("SHOW INDEX FROM sequences WHERE Key_name = 'uq_sequences_empresa_name'");
-            if (!$idx2 || $idx2->num_rows < 1) {
-                $mysqli->query("ALTER TABLE sequences ADD UNIQUE KEY uq_sequences_empresa_name (empresa_id, name)");
-            }
-        }
-    } catch (Throwable $e) {
-    }
-}
+$staffHasEmpresaId = true;
+$sequencesHasEmpresaId = true;
 
 $currentStaffId = (int)($_SESSION['staff_id'] ?? 0);
 $currentStaffRole = '';
@@ -460,13 +426,13 @@ if ($embed) {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Secuencias</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+        <link rel="stylesheet" href="css/vendor/bootstrap.min.css">
+        <link rel="stylesheet" href="css/vendor/bootstrap-icons.css">
         <link rel="stylesheet" href="css/scp.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/scp.css'); ?>">
     </head>
     <body class="p-3" style="background:#fff;">
         <?php echo $content; ?>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="js/vendor/bootstrap.bundle.min.js"></script>
     </body>
     </html><?php
     exit;

@@ -49,21 +49,7 @@ if (empty($ticket['closed'])) {
 $sid = (int)$_SESSION['staff_id'];
 $mysqli->query("INSERT IGNORE INTO staff_reports_seen (staff_id, ticket_id) VALUES ($sid, $ticketId)");
 
-// ── Crear tabla de items si no existe ──────────────────────────────────────
-$tblCheck = $mysqli->query("SHOW TABLES LIKE 'ticket_report_items'");
-if (!$tblCheck || $tblCheck->num_rows === 0) {
-    $mysqli->query("CREATE TABLE `ticket_report_items` (
-        `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-        `empresa_id` int(11) NOT NULL DEFAULT 1,
-        `report_id` int(11) unsigned NOT NULL,
-        `description` text NOT NULL,
-        `price` decimal(10,2) NOT NULL DEFAULT 0.00,
-        `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-        PRIMARY KEY (`id`),
-        KEY `idx_empresa_id` (`empresa_id`),
-        KEY `idx_report_id` (`report_id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-}
+// La tabla ticket_report_items ya existe en producción.
 
 // 2. Verificar si ya existe un reporte
 $reportExists = false;
@@ -447,14 +433,14 @@ h6.border-bottom {
 
 /* Tarjetas de ítems en móvil */
 body.dark-mode .items-table-wrap .table tbody tr {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .items-table-wrap .table tbody td[data-label]::before {
     color: #71717a !important;
 }
 body.dark-mode .items-table-wrap .table thead th {
-    background: #111113 !important;
+    background: #000000 !important;
     color: #a1a1aa !important;
     border-color: #27272a !important;
 }
@@ -465,7 +451,7 @@ body.dark-mode .items-table-wrap .table tbody td {
 /* Inputs dentro de las tarjetas */
 body.dark-mode .items-table-wrap .item-desc,
 body.dark-mode .items-table-wrap .item-price {
-    background: #09090b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #e4e4e7 !important;
 }
@@ -476,7 +462,7 @@ body.dark-mode .items-table-wrap .item-price::placeholder {
 /* Card de overview móvil (Depto, Técnico, etc.) — solo celular */
 @media (max-width: 767px) {
     body.dark-mode .ticket-view-overview .field {
-        background: #18181b !important;
+        background: #000000 !important;
         border-color: #27272a !important;
     }
     body.dark-mode .ticket-view-overview .d-md-none label {
@@ -508,7 +494,7 @@ body.dark-mode .items-table-wrap .item-price::placeholder {
 }
 /* Sección usuario móvil */
 body.dark-mode .mobile-user-section {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .mobile-user-info .name {
@@ -518,12 +504,12 @@ body.dark-mode .mobile-user-info .sub {
     color: #a1a1aa !important;
 }
 body.dark-mode .mobile-avatar {
-    background: #111113 !important;
+    background: #000000 !important;
     color: #a1a1aa !important;
 }
 /* Grid inferior móvil */
 body.dark-mode .mobile-grid-item {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .mobile-grid-item label {
@@ -534,22 +520,22 @@ body.dark-mode .mobile-grid-item .val {
 }
 /* Settings card */
 body.dark-mode .settings-card {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .settings-card .card-header {
-    background: #111113 !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #e4e4e7 !important;
 }
 body.dark-mode .settings-card .card-body {
-    background: #18181b !important;
+    background: #000000 !important;
     color: #e4e4e7 !important;
 }
 /* Textarea y form-control generales */
 body.dark-mode .settings-card textarea.form-control,
 body.dark-mode .settings-card input.form-control {
-    background: #09090b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #e4e4e7 !important;
 }
@@ -559,12 +545,12 @@ body.dark-mode .settings-card input.form-control::placeholder {
 }
 /* Custom options (radios) */
 body.dark-mode .custom-option {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #e4e4e7 !important;
 }
 body.dark-mode .custom-option:hover {
-    background: #1f1f23 !important;
+    background: #000000 !important;
     border-color: #3f3f46 !important;
 }
 body.dark-mode .custom-option:has(input:checked) {
@@ -577,25 +563,25 @@ body.dark-mode .custom-option .text-muted {
 }
 /* Observaciones alert */
 body.dark-mode .alert-secondary {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #a1a1aa !important;
 }
 body.dark-mode .bg-light.rounded.border {
-    background: #111113 !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     color: #d4d4d8 !important;
 }
 body.dark-mode .items-table-wrap tfoot tr {
-    background: #111113 !important;
+    background: #000000 !important;
 }
 body.dark-mode .items-table-wrap tfoot tr td {
-    background: #111113 !important;
+    background: #000000 !important;
     color: #f4f4f5 !important;
     border-top-color: #27272a !important;
 }
 body.dark-mode .price-display-box {
-    background: #111113 !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .price-display-box .price-value {
@@ -605,24 +591,24 @@ body.dark-mode .price-display-box .price-label {
     color: #a1a1aa !important;
 }
 body.dark-mode .mat-read-item {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
 }
 body.dark-mode .mat-read-item .mat-name {
     color: #e4e4e7 !important;
 }
 body.dark-mode .mat-read-item .mat-qty {
-    background: #27272a !important;
+    background: #000000 !important;
     color: #a1a1aa !important;
 }
 body.dark-mode .btn-back-creative {
-    background: #18181b !important;
+    background: #000000 !important;
     color: #a1a1aa !important;
     border-color: #27272a !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
 }
 body.dark-mode .btn-back-creative:hover {
-    background: #27272a !important;
+    background: #000000 !important;
     color: #f4f4f5 !important;
     border-color: #3f3f46 !important;
 }
@@ -1043,12 +1029,12 @@ body.dark-mode .reporte-ticket-link:hover {
                             </table>
                         </div>
 
-                        <div class="d-flex flex-column flex-md-row justify-content-end gap-2 mt-3">
-                            <a href="reporte_costos.php?ticket_id=<?php echo $ticketId; ?>&action=edit" class="btn btn-warning btn-sm">
-                                <i class="bi bi-pencil"></i> Editar Reporte
+                        <div class="d-flex flex-column flex-md-row justify-content-end gap-3 mt-4 pt-4 border-top border-secondary-subtle">
+                            <a href="reporte_costos.php?ticket_id=<?php echo $ticketId; ?>&action=edit" class="btn btn-outline-primary fw-bold" style="border-radius: 12px; padding: 10px 24px; transition: all 0.2s;">
+                                <i class="bi bi-pencil-square me-1"></i> Editar Reporte
                             </a>
-                            <a href="reporte_pdf.php?report_id=<?php echo (int)$reportData['id']; ?>" class="btn btn-sm btn-pdf-action" style="border:1px solid #ef4444; color:#ef4444; background:transparent;">
-                                <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
+                            <a href="reporte_pdf.php?report_id=<?php echo (int)$reportData['id']; ?>" class="btn btn-danger btn-pdf-action fw-bold" style="border-radius: 12px; padding: 10px 24px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2); transition: all 0.2s;">
+                                <i class="bi bi-file-earmark-pdf-fill me-1"></i> Descargar PDF
                             </a>
                         </div>
 

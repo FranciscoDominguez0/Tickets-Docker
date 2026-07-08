@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 require_once __DIR__ . '/../../includes/Auth.php';
@@ -61,6 +61,24 @@ if ($thread_id > 0) {
     $stmt->bind_param('i', $thread_id);
     $stmt->execute();
     $entries = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Fetch attachments for all entries
+$attachmentsByEntry = [];
+if (!empty($entries)) {
+    $entryIds = array_map(fn($e) => (int)$e['id'], $entries);
+    $placeholders = implode(',', array_fill(0, count($entryIds), '?'));
+    $types = str_repeat('i', count($entryIds));
+    $stmtA = $mysqli->prepare("SELECT id, thread_entry_id, original_filename, mimetype FROM attachments WHERE thread_entry_id IN ($placeholders) ORDER BY id");
+    if ($stmtA) {
+        $stmtA->bind_param($types, ...$entryIds);
+        if ($stmtA->execute()) {
+            $resA = $stmtA->get_result();
+            while ($a = $resA->fetch_assoc()) {
+                $attachmentsByEntry[(int)$a['thread_entry_id']][] = $a;
+            }
+        }
+    }
 }
 
 // App settings para encabezado
@@ -188,7 +206,7 @@ if (defined('TICKET_PDF_RENDER')) {
     <title>Imprimir Ticket <?php echo html((string)($t['ticket_number'] ?? ('#' . $tid))); ?></title>
     <link rel="icon" href="<?php echo rtrim((string)(defined('APP_URL') ? APP_URL : ''), '/'); ?>/publico/img/favicon.ico" type="image/x-icon">
     <?php if (!defined('TICKET_PDF_RENDER')): ?>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="css/vendor/bootstrap-icons.css">
     <?php endif; ?>
     <style>
         :root{
@@ -227,7 +245,7 @@ if (defined('TICKET_PDF_RENDER')) {
         .who{font-weight:900;}
         .when{color:var(--muted); font-weight:700; font-size: 11px; text-align:right;}
         .body{white-space:pre-wrap; word-break:break-word; line-height:1.45;}
-        .body img{max-width:100%; height:auto; display:block; border-radius:6px; margin-top:8px;}
+        .body img{max-width:180px; max-height:180px; width:auto; height:auto; display:block; border-radius:6px; margin-top:8px;}
         .body iframe{max-width:100%; width:100%; border-radius:6px;}
         .tag{font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#b45309; margin-left:10px; background:#fef3c7; padding:2px 6px; border-radius:10px;}
 
@@ -239,8 +257,17 @@ if (defined('TICKET_PDF_RENDER')) {
         .sig-title{font-size:11px; text-transform:uppercase; letter-spacing:.05em; font-weight:800; color:var(--muted); text-align:center; border-bottom:1px solid var(--line); padding-bottom:6px; margin-bottom:8px;}
         .sig-body{text-align:center; padding: 4px;}
         .sig-img{display:inline-block; max-width:100%; max-height:120px; width:auto; height:auto; filter: contrast(1.1) grayscale(0.5);}
-
+        @page {
+            margin: 0;
+        }
         @media print{
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            body {
+                padding: 1.5cm;
+            }
             .sheet{max-width:none; margin:0; padding:0;}
             .entry{page-break-inside: avoid;}
             .summary{page-break-inside: avoid;}
@@ -262,9 +289,13 @@ if (defined('TICKET_PDF_RENDER')) {
                 </div>
             </td>
             <td style="vertical-align:bottom; text-align:right; width:40%;">
-                <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#64748b; letter-spacing:0.08em; margin-bottom:6px;">Documento de Ticket</div>
-                <div style="font-size:28px; font-weight:900; color:#0f172a; line-height:1; letter-spacing:-0.02em; margin-bottom:10px;"><?php echo html((string)($t['ticket_number'] ?? ('#' . $tid))); ?></div>
-                <div style="font-size:13px; font-weight:800; color:#334155; margin-bottom:6px;"><?php echo html((string)($t['subject'] ?? '')); ?></div>
+                <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#64748b; letter-spacing:0.08em; margin-bottom:8px;">Documento de Ticket</div>
+                <div style="display:inline-flex; align-items: baseline; gap: 2px; padding: 6px 16px 7px; border-radius: 12px; background: #0f172a; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18); margin-bottom: 12px;">
+                    <span style="color: #ef4444; font-weight: 800; font-size: 24px; line-height: 1;">#</span>
+                    <span style="color: #ffffff; font-weight: 900; font-size: 26px; line-height: 1; letter-spacing: 0.04em; font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;">
+                        <?php echo html(ltrim((string)($t['ticket_number'] ?? $tid), '#')); ?>
+                    </span>
+                </div>
                 <div style="font-size:11px; color:#64748b; font-weight:700;">Emitido: <?php 
                     $originalTz = date_default_timezone_get();
                     date_default_timezone_set('America/Panama');
@@ -331,6 +362,16 @@ if (defined('TICKET_PDF_RENDER')) {
                     <div class="body"><?php
                         echo sanitizeRichText((string)($e['body'] ?? ''));
                     ?></div>
+                    <?php if (!empty($attachmentsByEntry[(int)$e['id']])): ?>
+                        <div class="attachments" style="margin-top: 10px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px;">
+                            <strong>Adjuntos:</strong>
+                            <ul style="margin: 4px 0 0 0; padding-left: 20px; list-style-type: none;">
+                                <?php foreach ($attachmentsByEntry[(int)$e['id']] as $att): ?>
+                                    <li style="margin-bottom: 2px;"><i class="bi bi-paperclip"></i> <?php echo html($att['original_filename']); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
@@ -348,6 +389,7 @@ if (defined('TICKET_PDF_RENDER')) {
         <div class="sig-body">
             <?php if ($ticketClientSignatureUrl !== ''): ?>
                 <img src="<?php echo html($ticketClientSignatureUrl); ?>" alt="Firma del cliente" class="sig-img">
+                <div style="font-size:11px; font-weight:700; color:#334155; margin-top:4px; text-transform:uppercase; letter-spacing:0.02em;"><?php echo html($userName); ?></div>
             <?php else: ?>
                 <div style="padding: 20px 0; color: #94a3b8; font-size: 13px; font-weight: 700; font-style: italic; letter-spacing: 0.03em;">(No incluye firma)</div>
             <?php endif; ?>

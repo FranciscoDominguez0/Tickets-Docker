@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * VER TICKETS (USUARIO)
  * Lista de tickets del usuario
@@ -11,6 +11,34 @@ require_once '../includes/helpers.php';
 requireLogin('cliente');
 
 $user = getCurrentUser();
+$eid = (int)($_SESSION['empresa_id'] ?? 0);
+if ($eid <= 0) $eid = 1;
+$uid = (int)($_SESSION['user_id'] ?? 0);
+
+// AJAX o POST actions para cotizaciones del portal cliente
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'quote_action') {
+    if (isset($_POST['csrf_token']) && Auth::validateCSRF($_POST['csrf_token'])) {
+        $qId = (int)($_POST['quote_id'] ?? 0);
+        $qAction = $_POST['quote_action_name'] ?? ''; // 'create', 'accept', 'reject'
+        $orgId = (int)($_POST['org_id'] ?? 0);
+        
+        if ($qAction === 'create') {
+            $title = trim($_POST['title'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            if ($title !== '' && $orgId > 0) {
+                $stmt = $mysqli->prepare("INSERT INTO quotes (empresa_id, org_id, staff_id, title, description, status, created_at) VALUES (?, ?, 0, ?, ?, 'draft', NOW())");
+                if ($stmt) {
+                    $stmt->bind_param('iiss', $eid, $orgId, $title, $description);
+                    $stmt->execute();
+                    $_SESSION['flash_msg'] = 'Cotización solicitada exitosamente.';
+                }
+            }
+        }
+
+        header("Location: tickets.php?view=org&org_id=" . $orgId . "&list=quotes");
+        exit;
+    }
+}
 
 // AJAX: check for new staff replies while user is on tickets.php
 if (isset($_GET['action']) && $_GET['action'] === 'check_staff_replies') {
@@ -208,11 +236,22 @@ $orgUsersTotal = 0;
 $orgUsersTotalPages = 1;
 $orgTicketsTotal = 0;
 $orgTicketsTotalPages = 1;
-$orgExplorerListMode = (isset($_GET['list']) && (string)$_GET['list'] === 'all') ? 'all' : 'users';
+$orgExplorerListMode = (isset($_GET['list']) && in_array((string)$_GET['list'], ['all', 'users'], true)) ? (string)$_GET['list'] : 'quotes';
 $orgAllTicketsPage = max(1, (int)($_GET['oat'] ?? 1));
 $orgAllTicketsTotal = 0;
 $orgAllTicketsTotalPages = 1;
 $orgExplorerAllTickets = [];
+
+$orgQuotesTotal = 0;
+$orgQuotesPage = max(1, (int)($_GET['oqp'] ?? 1));
+$orgQuotesTotalPages = 1;
+$orgExplorerQuotes = [];
+
+$orgReportsTotal = 0;
+$orgReportsPage = max(1, (int)($_GET['orp'] ?? 1));
+$orgReportsTotalPages = 1;
+$orgExplorerReports = [];
+
 $ticketMonthFilter = null;
 $ticketMonthOptions = [];
 $ticketMonthSql = '';
@@ -249,7 +288,8 @@ if ($isOrgExplorer) {
             $orgUsersOffset = ($orgUsersPage - 1) * $orgListPerPage;
 
             if ($orgExplorerMemberId <= 0 && $orgExplorerListMode === 'all') {
-                $orgAllTicketsTotal = countPortalOrganizationTickets($mysqli, $eid, $orgExplorerOrgId, $orgExplorerOrgName, $ticketMonthFilter);
+                $q = trim($_GET['q'] ?? '');
+                $orgAllTicketsTotal = countPortalOrganizationTickets($mysqli, $eid, $orgExplorerOrgId, $orgExplorerOrgName, $ticketMonthFilter, $q);
                 $orgAllTicketsTotalPages = $orgAllTicketsTotal > 0 ? (int)ceil($orgAllTicketsTotal / $orgListPerPage) : 1;
                 $orgAllTicketsPage = min($orgAllTicketsPage, max(1, $orgAllTicketsTotalPages));
                 $orgAllTicketsOffset = ($orgAllTicketsPage - 1) * $orgListPerPage;
@@ -260,8 +300,55 @@ if ($isOrgExplorer) {
                     $orgExplorerOrgName,
                     $orgListPerPage,
                     $orgAllTicketsOffset,
-                    $ticketMonthFilter
+                    $ticketMonthFilter,
+                    $q
                 );
+            } elseif ($orgExplorerMemberId <= 0 && $orgExplorerListMode === 'quotes') {
+                ensureOrgBossReportReadsTable();
+                
+                $docs = [];
+                
+                // Fetch Quotes
+                $stmtQ = $mysqli->prepare("SELECT id, title as subject, description as body_html, status, created_at, 'quote' as doc_type FROM quotes WHERE empresa_id = ? AND org_id = ?");
+                if ($stmtQ) {
+                    $stmtQ->bind_param('ii', $eid, $orgExplorerOrgId);
+                    if ($stmtQ->execute()) {
+                        $resQ = $stmtQ->get_result();
+                        while ($row = $resQ->fetch_assoc()) {
+                            $docs[] = $row;
+                        }
+                    }
+                }
+                
+                // Fetch Reports
+                $sqlR = "SELECT r.id, r.subject, r.body_html, r.created_at, 'report' as doc_type,
+                            (SELECT rr.id FROM org_boss_report_reads rr WHERE rr.report_id = r.id AND rr.user_id = ? LIMIT 1) AS is_read
+                         FROM org_boss_reports r
+                         WHERE r.empresa_id = ? AND r.organization_id = ?";
+                $stmtR = $mysqli->prepare($sqlR);
+                if ($stmtR) {
+                    $stmtR->bind_param('iii', $uid, $eid, $orgExplorerOrgId);
+                    if ($stmtR->execute()) {
+                        $resR = $stmtR->get_result();
+                        while ($row = $resR->fetch_assoc()) {
+                            $row['status'] = empty($row['is_read']) ? 'unread' : 'read';
+                            $docs[] = $row;
+                        }
+                    }
+                }
+                
+                // Sort by date DESC
+                usort($docs, function($a, $b) {
+                    return strtotime($b['created_at']) <=> strtotime($a['created_at']);
+                });
+                
+                $orgQuotesTotal = count($docs);
+                $orgQuotesTotalPages = $orgQuotesTotal > 0 ? (int)ceil($orgQuotesTotal / $orgListPerPage) : 1;
+                $orgQuotesPage = max(1, (int)($_GET['oqp'] ?? 1));
+                $orgQuotesPage = min($orgQuotesPage, max(1, $orgQuotesTotalPages));
+                $orgQuotesOffset = ($orgQuotesPage - 1) * $orgListPerPage;
+                
+                $orgExplorerQuotes = array_slice($docs, $orgQuotesOffset, $orgListPerPage);
             } elseif ($orgExplorerMemberId <= 0) {
                 $orgExplorerMembers = fetchOrganizationUsers(
                     $mysqli,
@@ -326,15 +413,25 @@ if ($isOrgExplorer) {
                         $orgExplorerMemberName = (string)($memberRow['email'] ?? 'Usuario');
                     }
 
+                    $q = trim($_GET['q'] ?? '');
+                    $searchSql = '';
+                    $searchTypes = '';
+                    $searchParams = [];
+                    if ($q !== '') {
+                        $searchSql = ' AND t.ticket_number LIKE ?';
+                        $searchTypes = 's';
+                        $searchParams = ['%' . $q . '%'];
+                    }
+
                     $stmtTc = $mysqli->prepare(
-                        'SELECT COUNT(*) AS c FROM tickets t WHERE t.user_id = ? AND t.empresa_id = ?' . $ticketMonthSql
+                        'SELECT COUNT(*) AS c FROM tickets t WHERE t.user_id = ? AND t.empresa_id = ?' . $ticketMonthSql . $searchSql
                     );
                     if ($stmtTc) {
                         mysqliBindParams(
                             $stmtTc,
-                            'ii' . $ticketMonthTypes,
+                            'ii' . $ticketMonthTypes . $searchTypes,
                             [$orgExplorerMemberId, $eid],
-                            $ticketMonthParams
+                            array_merge($ticketMonthParams, $searchParams)
                         );
                         if ($stmtTc->execute()) {
                             $orgTicketsTotal = (int)($stmtTc->get_result()->fetch_assoc()['c'] ?? 0);
@@ -350,16 +447,16 @@ if ($isOrgExplorer) {
                                 (SELECT status FROM ticket_approvals WHERE ticket_id = t.id ORDER BY id DESC LIMIT 1) AS approval_status
                          FROM tickets t
                          LEFT JOIN ticket_status ts ON t.status_id = ts.id
-                         WHERE t.user_id = ? AND t.empresa_id = ?' . $ticketMonthSql . '
+                         WHERE t.user_id = ? AND t.empresa_id = ?' . $ticketMonthSql . $searchSql . '
                          ORDER BY COALESCE(t.updated, t.created) DESC
                          LIMIT ? OFFSET ?'
                     );
                     if ($stmtOt) {
                         mysqliBindParams(
                             $stmtOt,
-                            'ii' . $ticketMonthTypes . 'ii',
+                            'ii' . $ticketMonthTypes . $searchTypes . 'ii',
                             [$orgExplorerMemberId, $eid],
-                            array_merge($ticketMonthParams, [$orgListPerPage, $orgTicketsOffset])
+                            array_merge($ticketMonthParams, $searchParams, [$orgListPerPage, $orgTicketsOffset])
                         );
                         if ($stmtOt->execute()) {
                             $orgExplorerTickets = $stmtOt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
@@ -473,6 +570,9 @@ $sigBlockPortal = ($blockNewIfSignaturePending && $pendingSignCount > 0);
 // Aprobaciones pendientes (si es jefe)
 $pendingApprovalCount = 0;
 $pendingApprovalFirstOrgId = 0;
+$pendingQuotesCount = 0;
+$pendingQuotesFirstOrgId = 0;
+$totalReportsCount = 0;
 if ($canOrgTicketsView) {
     $orgs = getPortalOrganizationsForUser($mysqli, $uid, $eid);
     if (!empty($orgs)) {
@@ -525,6 +625,46 @@ if ($canOrgTicketsView) {
         if ($pendingApprovalFirstOrgId <= 0 && !empty($orgs)) {
             $pendingApprovalFirstOrgId = (int)($orgs[0]['organization_id'] ?? 0);
         }
+
+        // --- Cotizaciones pendientes
+        $orgIds = [];
+        foreach ($orgs as $o) {
+            $oid = (int) ($o['organization_id'] ?? 0);
+            if ($oid > 0) {
+                $orgIds[] = $oid;
+            }
+        }
+        if (!empty($orgIds) && dbTableExists('quotes')) {
+            $inList = implode(',', $orgIds);
+            $sqlPQ = "SELECT COUNT(id) as c, MIN(org_id) as oid FROM quotes WHERE empresa_id = ? AND org_id IN ($inList) AND status NOT IN ('accepted', 'rejected')";
+            $stmtPq = $mysqli->prepare($sqlPQ);
+            if ($stmtPq) {
+                $stmtPq->bind_param('i', $eid);
+                if ($stmtPq->execute()) {
+                    $rowPq = $stmtPq->get_result()->fetch_assoc();
+                    if ($rowPq && $rowPq['c'] > 0) {
+                        $pendingQuotesCount = (int)$rowPq['c'];
+                        $pendingQuotesFirstOrgId = (int)$rowPq['oid'];
+                    }
+                }
+            }
+        }
+
+        // --- Total Informes
+        if (!empty($orgIds) && dbTableExists('org_boss_reports')) {
+            $inList = implode(',', $orgIds);
+            $sqlTR = "SELECT COUNT(id) as c FROM org_boss_reports WHERE empresa_id = ? AND organization_id IN ($inList)";
+            $stmtTr = $mysqli->prepare($sqlTR);
+            if ($stmtTr) {
+                $stmtTr->bind_param('i', $eid);
+                if ($stmtTr->execute()) {
+                    $rowTr = $stmtTr->get_result()->fetch_assoc();
+                    if ($rowTr && $rowTr['c'] > 0) {
+                        $totalReportsCount = (int)$rowTr['c'];
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -562,7 +702,8 @@ $tickets = [];
 $sql = '
     SELECT t.id, t.ticket_number, t.subject, t.created, t.closed,
            ts.name as status_name, ts.color as status_color,
-           p.name as priority_name, p.color as priority_color
+           p.name as priority_name, p.color as priority_color,
+           (SELECT status FROM ticket_approvals WHERE ticket_id = t.id ORDER BY id DESC LIMIT 1) AS approval_status
     FROM tickets t
     LEFT JOIN ticket_status ts ON t.status_id = ts.id
     LEFT JOIN priorities p ON t.priority_id = p.id
@@ -621,8 +762,8 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mis Tickets - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
     <style>
         body {
             background: #f6f7fb;
@@ -1296,9 +1437,9 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
                         .profile-dd-icon-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
                         .profile-dd-divider { border-color: #f1f5f9; opacity: 1; margin: 8px 0; }
                         
-                        body.dark-mode .profile-dropdown { background: #1a1a1a; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
+                        body.dark-mode .profile-dropdown { background: #000000; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
                         body.dark-mode .profile-dd-item { color: #cbd5e1; }
-                        body.dark-mode .profile-dd-item:hover { background: #252525; color: #f8fafc; }
+                        body.dark-mode .profile-dd-item:hover { background: #000000; color: #f8fafc; }
                         body.dark-mode .profile-dd-icon-default { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
                         body.dark-mode .profile-dd-icon-success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
                         body.dark-mode .profile-dd-danger { color: #ef4444; }
@@ -1312,13 +1453,7 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
                                 <div class="profile-dd-icon profile-dd-icon-default"><i class="bi bi-inboxes"></i></div> Mis Tickets
                             </a>
                         </li>
-                        <?php if (!empty($canOrgTicketsView)): ?>
-                        <li>
-                            <a class="dropdown-item d-flex align-items-center gap-3 profile-dd-item" href="tickets.php?view=org">
-                                <div class="profile-dd-icon profile-dd-icon-default"><i class="bi bi-diagram-3"></i></div> Por organización
-                            </a>
-                        </li>
-                        <?php endif; ?>
+
                         <li>
                             <a class="dropdown-item d-flex align-items-center gap-3 profile-dd-item" href="open.php" <?php if (!empty($sigBlockPortal)): ?> onclick="window.showSigToast && window.showSigToast(); return false;" <?php endif; ?>>
                                 <div class="profile-dd-icon profile-dd-icon-success"><i class="bi bi-plus-circle"></i></div> Crear Ticket
@@ -1343,86 +1478,110 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
 
     <div class="container-main">
         <div class="shell">
-            <?php if (!empty($canOrgTicketsView) && $pendingApprovalCount > 0 && empty($isOrgExplorer)): ?>
+            <div class="alerts-container" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; width: 100%;">
+            <?php if ((!empty($canOrgTicketsView) && $pendingApprovalCount > 0 && empty($isOrgExplorer)) || ($pendingQuotesCount > 0)): ?>
             <style>
-                .exec-review-alert {
-                    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
-                    padding: 16px 20px; border-radius: 16px; margin-bottom: 24px;
+                .reports-mini-toast {
+                    display: inline-flex; align-items: center; gap: 12px;
                     background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
                     border: 1px solid #fca5a5;
+                    color: #262626; padding: 8px 16px; border-radius: 999px;
+                    text-decoration: none; font-size: 0.9rem; font-weight: 500;
+                    margin-bottom: 0; transition: all 0.2s ease;
                     box-shadow: 0 4px 15px rgba(185, 28, 28, 0.08);
-                    transition: all 0.3s ease;
                 }
-                .exec-review-alert__main { display: flex; align-items: center; gap: 16px; }
-                .exec-review-alert__icon {
+                .reports-mini-toast:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(185, 28, 28, 0.15);
+                    color: #000000; border-color: #ef4444;
+                }
+                .reports-mini-toast__icon {
                     display: flex; align-items: center; justify-content: center;
-                    width: 44px; height: 44px; border-radius: 12px;
-                    background: #b91c1c; color: #ffffff; font-size: 1.3rem;
-                    box-shadow: 0 4px 12px rgba(185, 28, 28, 0.25);
+                    width: 28px; height: 28px; border-radius: 50%;
+                    background: #b91c1c; color: #ffffff;
+                    font-size: 0.9rem; box-shadow: 0 2px 8px rgba(185, 28, 28, 0.25);
+                    flex-shrink: 0;
                 }
-                .exec-review-alert__text { color: #262626; font-size: 1rem; line-height: 1.4; margin: 0; }
-                .exec-review-alert__text strong { color: #000000; font-weight: 700; }
-                .exec-review-alert__btn {
-                    background: #000000; color: #ffffff; border: 1px solid #000000;
-                    font-weight: 600; padding: 8px 20px; border-radius: 999px;
-                    text-decoration: none; transition: all 0.2s ease;
-                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-                    display: inline-flex; align-items: center; gap: 6px;
-                }
-                .exec-review-alert__btn:hover { background: #b91c1c; color: #ffffff; border-color: #b91c1c; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(185, 28, 28, 0.3); }
-
-                body.dark-mode .exec-review-alert {
+                .reports-mini-toast strong { font-weight: 800; color: #000000; margin-right: 4px; }
+                
+                body.dark-mode .reports-mini-toast {
                     background: linear-gradient(135deg, #171717 0%, #262626 100%);
                     border-color: rgba(185, 28, 28, 0.4);
+                    color: #d4d4d4;
                     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
                 }
-                body.dark-mode .exec-review-alert__icon {
+                body.dark-mode .reports-mini-toast:hover {
+                    border-color: rgba(185, 28, 28, 0.8); color: #ffffff;
+                }
+                body.dark-mode .reports-mini-toast__icon {
                     background: rgba(185, 28, 28, 0.2); color: #fca5a5;
-                    box-shadow: none; border: 1px solid rgba(185, 28, 28, 0.4);
+                    border: 1px solid rgba(185, 28, 28, 0.4); box-shadow: none;
                 }
-                body.dark-mode .exec-review-alert__text { color: #d4d4d4; }
-                body.dark-mode .exec-review-alert__text strong { color: #ffffff; }
-                body.dark-mode .exec-review-alert__btn {
-                    background: rgba(185, 28, 28, 0.15); color: #fca5a5; border-color: rgba(185, 28, 28, 0.5);
-                    box-shadow: none;
-                }
-                body.dark-mode .exec-review-alert__btn:hover {
-                    background: rgba(185, 28, 28, 0.3); color: #ffffff; border-color: rgba(185, 28, 28, 0.8);
-                }
+                body.dark-mode .reports-mini-toast strong { color: #ffffff; }
 
                 @media (max-width: 767.98px) {
-                    .exec-review-alert {
-                        flex-direction: column; align-items: stretch; gap: 12px;
-                        padding: 14px 16px; border-radius: 14px; margin-bottom: 16px;
+                    .alerts-container {
+                        flex-direction: column !important;
+                        gap: 10px !important;
                     }
-                    .exec-review-alert__main { gap: 12px; }
-                    .exec-review-alert__icon {
-                        width: 38px; height: 38px; border-radius: 10px; font-size: 1.1rem;
-                        flex-shrink: 0;
+                    .alerts-container > div {
+                        width: 100%;
+                        margin-left: 0 !important;
                     }
-                    .exec-review-alert__text { font-size: 0.88rem; line-height: 1.4; }
-                    .exec-review-alert__btn {
-                        width: 100%; justify-content: center;
-                        padding: 10px 16px; font-size: 0.88rem; border-radius: 10px;
+                    .reports-mini-toast {
+                        width: 100%;
+                        justify-content: flex-start;
+                        font-size: 0.8rem;
+                        padding: 8px 14px;
+                        border-radius: 12px;
+                        gap: 10px;
+                    }
+                    .reports-mini-toast__icon {
+                        width: 24px; height: 24px; font-size: 0.8rem;
                     }
                 }
             </style>
-            <div class="exec-review-alert">
-                <div class="exec-review-alert__main">
-                    <div class="exec-review-alert__icon">
-                        <i class="bi bi-shield-lock-fill"></i>
-                    </div>
-                    <div>
-                        <p class="exec-review-alert__text">
-                            <strong>Revisión Ejecutiva:</strong> Tienes <strong><?php echo $pendingApprovalCount; ?></strong> <?php echo $pendingApprovalCount === 1 ? 'ticket pendiente' : 'tickets pendientes'; ?> de aprobación.
-                        </p>
-                    </div>
-                </div>
-                <a href="tickets.php?view=org<?php echo $pendingApprovalFirstOrgId > 0 ? '&amp;org_id=' . $pendingApprovalFirstOrgId . '&amp;list=all' : ''; ?>" class="exec-review-alert__btn">
-                    Ver tickets <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
             <?php endif; ?>
+
+            <?php if (!empty($canOrgTicketsView) && $pendingApprovalCount > 0 && empty($isOrgExplorer)): ?>
+                <div style="flex-shrink: 0;">
+                    <a href="tickets.php?view=org<?php echo $pendingApprovalFirstOrgId > 0 ? '&amp;org_id=' . $pendingApprovalFirstOrgId . '&amp;list=all' : '&amp;list=all'; ?>" class="reports-mini-toast">
+                        <div class="reports-mini-toast__icon" style="background: #334155; box-shadow: 0 2px 8px rgba(51, 65, 85, 0.25);">
+                            <i class="bi bi-shield-lock-fill"></i>
+                        </div>
+                        <div>
+                            <strong>Revisión Ejecutiva:</strong> Tienes <?php echo $pendingApprovalCount; ?> pendiente(s)
+                        </div>
+                        <i class="bi bi-arrow-right" style="margin-left: 4px; font-size: 1.1rem; color: #b91c1c;"></i>
+                    </a>
+                </div>
+            <?php endif; ?>
+
+            <?php 
+                $unreadReportsCount = 0;
+                if (!empty($canOrgTicketsView) && empty($isOrgExplorer)) {
+                    $unreadReportsCount = countUnreadOrgBossReportsForUser($mysqli, $uid, $eid);
+                }
+            ?>
+            <?php if ($pendingQuotesCount > 0 && empty($isOrgExplorer)): ?>
+                <?php 
+                    $targetQuotesOrgId = ($pendingQuotesFirstOrgId > 0) ? $pendingQuotesFirstOrgId : (!empty($orgIds) ? $orgIds[0] : 0);
+                    $targetQuotesParam = $targetQuotesOrgId > 0 ? '&amp;org_id=' . $targetQuotesOrgId : '';
+                ?>
+                <div style="flex-shrink: 0; margin-left: auto;">
+                    <a href="tickets.php?view=org<?php echo $targetQuotesParam; ?>&amp;list=quotes" class="reports-mini-toast">
+                        <div class="reports-mini-toast__icon">
+                            <i class="bi bi-file-earmark-text-fill"></i>
+                        </div>
+                        <div>
+                            <strong>Nuevas Cotizaciones:</strong> Tienes <?php echo $pendingQuotesCount; ?> pendiente(s)
+                        </div>
+                        <i class="bi bi-arrow-right" style="margin-left: 4px; font-size: 1.1rem; color: #b91c1c;"></i>
+                    </a>
+                </div>
+            <?php endif; ?>
+            </div>
+
             <main class="panel-soft" style="padding: 18px;">
                 <?php if (!empty($isOrgExplorer)): ?>
                     <?php require __DIR__ . '/partials/client-org-tickets.inc.php'; ?>
@@ -1438,11 +1597,21 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
                             <a href="tickets.php?view=org" class="btn-org-ghost">
                                 <i class="bi bi-diagram-3"></i> Por organización
                             </a>
+                            <a href="tickets.php?view=org<?php echo $targetQuotesParam ?? (!empty($orgIds) ? '&amp;org_id=' . $orgIds[0] : ''); ?>&amp;list=quotes" class="btn-org-ghost position-relative">
+                                <i class="bi bi-file-earmark-text"></i> Cotizaciones
+                                <?php if (($pendingQuotesCount ?? 0) > 0): ?>
+                                <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
+                                    <span class="visually-hidden">Nuevas cotizaciones</span>
+                                </span>
+                                <?php endif; ?>
+                            </a>
                             <?php endif; ?>
                             <a href="open.php" class="btn btn-primary btn-sm" style="border-radius: 999px; font-weight: 800; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);" <?php if ($sigBlockPortal): ?> onclick="window.showSigToast && window.showSigToast(); return false;" <?php endif; ?>><i class="bi bi-plus-circle"></i> Abrir ticket</a>
                         </div>
                     </div>
                 </div>
+
+
 
                 <?php if ($flashMsg !== ''): ?>
                     <div class="alert alert-success" role="alert" id="tickets-flash-success"><?php echo html($flashMsg); ?></div>
@@ -1539,7 +1708,9 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
                             <?php foreach ($tickets as $ticket): ?>
                                 <?php $isNew = ($newTicketId > 0 && (int)$ticket['id'] === (int)$newTicketId); ?>
                                 <?php
-                                    $statusColor = normalizeTicketHexColor((string)($ticket['status_color'] ?? ''), '#ef4444');
+                                    $effClientListStatus = ticketEffectiveStatusDisplay($ticket['status_name'] ?? '', $ticket['status_color'] ?? '', $ticket['approval_status'] ?? '');
+                                    $clientListStatusName = (string)($effClientListStatus['name'] ?? ($ticket['status_name'] ?? ''));
+                                    $statusColor = normalizeTicketHexColor((string)($effClientListStatus['color'] ?? ($ticket['status_color'] ?? '')), '#ef4444');
                                     $priorityColor = normalizeTicketHexColor((string)($ticket['priority_color'] ?? ''), '#64748b');
                                     $statusBadgeStyle = clientTicketBadgeStyle($statusColor, $isDarkMode);
                                     $priorityBadgeStyle = clientTicketBadgeStyle($priorityColor, $isDarkMode);
@@ -1564,7 +1735,7 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
 
                                     <div class="ticket-card-meta">
                                         <span class="badge-soft" style="<?php echo html($statusBadgeStyle); ?>">
-                                            <?php echo html($ticket['status_name']); ?>
+                                            <?php echo html($clientListStatusName); ?>
                                         </span>
                                         <span class="badge-soft" style="<?php echo html($priorityBadgeStyle); ?>">
                                             <?php echo html($ticket['priority_name']); ?>
@@ -1671,7 +1842,7 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="scp/js/vendor/bootstrap-5.3.0.bundle.min.js"></script>
     <script>
         (function(){
             var POLL_MS = 12000;

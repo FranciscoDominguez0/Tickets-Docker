@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once '../../../config.php';
 require_once '../../../includes/helpers.php';
 
@@ -25,8 +25,8 @@ $allowExpandedGroups = !$sidebarDefaultCollapsed;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
     <title>SuperAdmin - <?php echo htmlspecialchars(APP_NAME); ?></title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="../css/vendor/bootstrap.min.css">
+    <link rel="stylesheet" href="../css/vendor/bootstrap-icons.css">
     <link rel="stylesheet" href="../css/scp.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/scp.css'); ?>">
 </head>
 <body class="superadmin scp-panel<?php echo $isDarkMode ? ' superadmin-dark' : ''; ?><?php echo $sidebarDefaultCollapsed ? ' sidebar-collapsed' : ''; ?>" data-sidebar-default="<?php echo $sidebarDefaultCollapsed ? 'collapsed' : 'expanded'; ?>">
@@ -212,33 +212,40 @@ $allowExpandedGroups = !$sidebarDefaultCollapsed;
     </main>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="../js/vendor/bootstrap.bundle.min.js"></script>
 <script src="../js/scp.js"></script>
 <script>
     (function(){
-        // Auto-dismiss alerts after 3.5 seconds
-        var alerts = document.querySelectorAll('.alert.alert-dismissible.fade.show:not(.d-none)');
+        // Auto-dismiss success and danger alerts after 4 seconds
+        var alerts = document.querySelectorAll('.alert-success, .alert-danger');
         alerts.forEach(function(el) {
             // Do not dismiss static alerts or those that specifically shouldn't be auto-hidden
             if (el.hasAttribute('data-alert-static') || el.getAttribute('data-static') === '1') return;
             
             window.setTimeout(function() {
                 try {
-                    if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
-                        var bsAlert = bootstrap.Alert.getOrCreateInstance(el);
-                        if (bsAlert) {
-                            el.style.transition = 'opacity 0.6s ease, transform 0.4s ease';
-                            el.style.opacity = '0';
-                            el.style.transform = 'translateY(-10px)';
-                            window.setTimeout(function() { bsAlert.close(); }, 600);
+                    // Smoothly fade out the element before removing it
+                    el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-10px)';
+                    
+                    window.setTimeout(function() {
+                        if (typeof bootstrap !== 'undefined' && bootstrap.Alert && el.classList.contains('alert-dismissible')) {
+                            var bsAlert = bootstrap.Alert.getOrCreateInstance(el);
+                            if (bsAlert) {
+                                bsAlert.close();
+                                return;
+                            }
                         }
-                    } else {
-                        el.style.display = 'none';
-                    }
+                        // Fallback removal if not bootstrap dismissible
+                        if (el && el.parentNode) {
+                            el.parentNode.removeChild(el);
+                        }
+                    }, 600);
                 } catch (e) {
                     console.warn('Error dismissing alert:', e);
                 }
-            }, 3500);
+            }, 4000);
         });
 
         var form = document.querySelector('[data-superadmin-dark-toggle-form]');

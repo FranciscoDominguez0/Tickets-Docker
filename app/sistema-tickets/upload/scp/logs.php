@@ -424,21 +424,22 @@ ob_start();
         </form>
     </div>
 
-    <div class="card-footer d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div class="card-footer">
         <div class="text-muted small">Total: <strong><?php echo (int)$total; ?></strong></div>
-        <nav aria-label="Paginación">
-            <ul class="pagination pagination-sm mb-0">
-                <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
-                    <a class="page-link" href="<?php echo html($mkUrl(['p' => max(1, $page - 1)])); ?>">&laquo;</a>
-                </li>
-                <li class="page-item disabled"><span class="page-link"><?php echo (int)$page; ?> / <?php echo (int)$totalPages; ?></span></li>
-                <li class="page-item <?php echo ($page >= $totalPages) ? 'disabled' : ''; ?>">
-                    <a class="page-link" href="<?php echo html($mkUrl(['p' => min($totalPages, $page + 1)])); ?>">&raquo;</a>
-                </li>
-            </ul>
-        </nav>
     </div>
 </div>
+
+<?php 
+$urlParams = '';
+$qs = $_GET;
+unset($qs['p']);
+foreach ($qs as $k => $v) {
+    if ($v !== '' && $v !== null) {
+        $urlParams .= '&' . urlencode($k) . '=' . urlencode($v);
+    }
+}
+echo renderModernPagination($page, $totalPages, $urlParams, 'p'); 
+?>
 
 <div class="modal fade" id="emptyAllLogsModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -554,13 +555,13 @@ ob_start();
     gap: 12px;
 }
 body.dark-mode .search-card {
-    background: linear-gradient(145deg, #18181b 0%, #09090b 100%) !important;
+    background: linear-gradient(145deg, #000000 0%, #000000 100%) !important;
     border-color: #27272a !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
 }
 body.dark-mode .search-card input,
 body.dark-mode .search-card select {
-    background-color: #09090b !important;
+    background-color: #000000 !important;
     border-color: #27272a !important;
     color: #f4f4f5 !important;
 }
@@ -574,7 +575,7 @@ body.dark-mode .search-card input::placeholder {
     transition: opacity 0.15s ease;
 }
 body.dark-mode #log-tip {
-    background: #18181b !important;
+    background: #000000 !important;
     border-color: #27272a !important;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
@@ -658,7 +659,7 @@ body.dark-mode .badge-lvl.lvl-info {
     border: 1px solid #e2e8f0;
 }
 body.dark-mode .log-ip code {
-    background: #27272a !important;
+    background: #000000 !important;
     color: #cbd5e1 !important;
     border-color: #3f3f46 !important;
 }
@@ -685,7 +686,7 @@ body.dark-mode .log-ip code {
         padding: 0 !important;
     }
     body.dark-mode .settings-card .table tbody tr {
-        background: #18181b !important;
+        background: #000000 !important;
         border-color: #27272a !important;
     }
     body.dark-mode .settings-card .table tbody tr td div {

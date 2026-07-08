@@ -3,6 +3,10 @@
 $filters = [
     'open' => ['label' => 'Abiertos', 'where' => 't.closed IS NULL'],
     'closed' => ['label' => 'Cerrados', 'where' => 't.closed IS NOT NULL'],
+    'billing_pending' => [
+        'label' => 'Por facturar',
+        'where' => "t.closed IS NOT NULL AND tr.id IS NOT NULL AND (tr.billing_status IS NULL OR tr.billing_status = 'pending')",
+    ],
     'mine' => ['label' => 'Asignados a mí', 'where' => 't.staff_id = ?'],
     'unassigned' => ['label' => 'Sin asignar', 'where' => 't.staff_id IS NULL'],
     'all' => ['label' => 'Todos', 'where' => '1=1'],
@@ -11,12 +15,17 @@ $filterKey = $_GET['filter'] ?? null;
 
 $role = getCurrentStaffRoleName();
 $isAgent = ($role === 'agent');
-$canViewAll = roleHasPermission('ticket.view_all');
+$isSuperadmin = ((string)($_SESSION['staff_role'] ?? '') === 'superadmin' || getCurrentStaffRoleName() === 'superadmin' || roleHasPermission('admin.access'));
+$canViewAll = $isSuperadmin || roleHasPermission('ticket.view_all');
 if ($filterKey === null && !$canViewAll) {
     $filterKey = 'mine';
 }
 if ($filterKey === null || !isset($filters[$filterKey])) {
     $filterKey = 'open';
+}
+if ($filterKey === 'billing_pending' && !roleHasPermission('ticket.reports')) {
+    header('Location: tickets.php');
+    exit;
 }
 $query = trim($_GET['q'] ?? '');
 
@@ -76,61 +85,60 @@ if ($deptFilterAvailable && $selectedDeptId > 0) {
     }
 }
 
-// Contadores rápidos
-$canViewAll = roleHasPermission('ticket.view_all');
-
+// ── Contadores: 1 sola query en lugar de 5 separadas (ahorra 4 round-trips por página) ────
 $countOpen = 0;
 $countClosed = 0;
 $countUnassigned = 0;
+$countMine = 0;
+$countBillingPending = 0;
 
-$sqlCo = 'SELECT COUNT(*) c FROM tickets WHERE empresa_id = ? AND closed IS NULL';
-if (!$canViewAll) {
-    $sqlCo .= ' AND staff_id = ?';
-}
-$stmtCo = $mysqli->prepare($sqlCo);
-if ($stmtCo) {
-    if (!$canViewAll) {
-        $stmtCo->bind_param('ii', $eid, $_SESSION['staff_id']);
-    } else {
-        $stmtCo->bind_param('i', $eid);
+$currentStaffId = (int)($_SESSION['staff_id'] ?? 0);
+
+if ($canViewAll) {
+    // Admin/supervisor: cuenta todos los tickets de la empresa
+    $sqlCounts = 'SELECT
+        SUM(IF(t.closed IS NULL, 1, 0)) AS cnt_open,
+        SUM(IF(t.closed IS NOT NULL, 1, 0)) AS cnt_closed,
+        SUM(IF(t.staff_id IS NULL AND t.closed IS NULL, 1, 0)) AS cnt_unassigned,
+        SUM(IF(t.staff_id = ? AND t.closed IS NULL, 1, 0)) AS cnt_mine,
+        SUM(IF(t.closed IS NOT NULL AND tr.id IS NOT NULL
+            AND (tr.billing_status IS NULL OR tr.billing_status = \'pending\'), 1, 0)) AS cnt_billing
+    FROM tickets t
+    LEFT JOIN ticket_reports tr ON tr.ticket_id = t.id
+    WHERE t.empresa_id = ?';
+    $stmtCnts = $mysqli->prepare($sqlCounts);
+    if ($stmtCnts) {
+        $stmtCnts->bind_param('ii', $currentStaffId, $eid);
+        if ($stmtCnts->execute()) {
+            $rowCnts = $stmtCnts->get_result()->fetch_assoc();
+            $countOpen           = (int)($rowCnts['cnt_open']        ?? 0);
+            $countClosed         = (int)($rowCnts['cnt_closed']      ?? 0);
+            $countUnassigned     = (int)($rowCnts['cnt_unassigned']  ?? 0);
+            $countMine           = (int)($rowCnts['cnt_mine']        ?? 0);
+            $countBillingPending = (int)($rowCnts['cnt_billing']     ?? 0);
+        }
     }
-    if ($stmtCo->execute()) $countOpen = (int)($stmtCo->get_result()->fetch_assoc()['c'] ?? 0);
-}
-
-$sqlCc = 'SELECT COUNT(*) c FROM tickets WHERE empresa_id = ? AND closed IS NOT NULL';
-if (!$canViewAll) {
-    $sqlCc .= ' AND staff_id = ?';
-}
-$stmtCc = $mysqli->prepare($sqlCc);
-if ($stmtCc) {
-    if (!$canViewAll) {
-        $stmtCc->bind_param('ii', $eid, $_SESSION['staff_id']);
-    } else {
-        $stmtCc->bind_param('i', $eid);
-    }
-    if ($stmtCc->execute()) $countClosed = (int)($stmtCc->get_result()->fetch_assoc()['c'] ?? 0);
-}
-
-$sqlCu = 'SELECT COUNT(*) c FROM tickets WHERE empresa_id = ? AND staff_id IS NULL AND closed IS NULL';
-if (!$canViewAll) {
-    $sqlCu .= ' AND staff_id = ?';
-}
-$stmtCu = $mysqli->prepare($sqlCu);
-if ($stmtCu) {
-    if (!$canViewAll) {
-        $stmtCu->bind_param('ii', $eid, $_SESSION['staff_id']);
-    } else {
-        $stmtCu->bind_param('i', $eid);
-    }
-    if ($stmtCu->execute()) $countUnassigned = (int)($stmtCu->get_result()->fetch_assoc()['c'] ?? 0);
-}
-
-if (!empty($_SESSION['staff_id'])) {
-    $sid = (int) $_SESSION['staff_id'];
-    $stmtCm = $mysqli->prepare('SELECT COUNT(*) c FROM tickets WHERE empresa_id = ? AND staff_id = ? AND closed IS NULL');
-    if ($stmtCm) {
-        $stmtCm->bind_param('ii', $eid, $sid);
-        if ($stmtCm->execute()) $countMine = (int)($stmtCm->get_result()->fetch_assoc()['c'] ?? 0);
+} else {
+    // Agente: solo sus tickets asignados
+    $sqlCounts = 'SELECT
+        SUM(IF(t.closed IS NULL, 1, 0)) AS cnt_open,
+        SUM(IF(t.closed IS NOT NULL, 1, 0)) AS cnt_closed,
+        SUM(IF(t.closed IS NOT NULL AND tr.id IS NOT NULL
+            AND (tr.billing_status IS NULL OR tr.billing_status = \'pending\'), 1, 0)) AS cnt_billing
+    FROM tickets t
+    LEFT JOIN ticket_reports tr ON tr.ticket_id = t.id
+    WHERE t.empresa_id = ? AND t.staff_id = ?';
+    $stmtCnts = $mysqli->prepare($sqlCounts);
+    if ($stmtCnts) {
+        $stmtCnts->bind_param('ii', $eid, $currentStaffId);
+        if ($stmtCnts->execute()) {
+            $rowCnts = $stmtCnts->get_result()->fetch_assoc();
+            $countOpen           = (int)($rowCnts['cnt_open']    ?? 0);
+            $countClosed         = (int)($rowCnts['cnt_closed']  ?? 0);
+            $countMine           = $countOpen; // agente solo ve sus propios tickets
+            $countUnassigned     = 0;
+            $countBillingPending = (int)($rowCnts['cnt_billing'] ?? 0);
+        }
     }
 }
 
@@ -148,19 +156,21 @@ if (!$canViewAll) {
     $params[] = (int) ($_SESSION['staff_id'] ?? 0);
 }
 
-if ($filterKey === 'mine') {
-    if ($canViewAll) {
-        $whereClauses[] = 't.staff_id = ?';
-        $types .= 'i';
-        $params[] = (int) ($_SESSION['staff_id'] ?? 0);
+if ($query === '') {
+    if ($filterKey === 'mine') {
+        if ($canViewAll) {
+            $whereClauses[] = 't.staff_id = ?';
+            $types .= 'i';
+            $params[] = (int) ($_SESSION['staff_id'] ?? 0);
+        }
+    } elseif ($filterKey !== 'all') {
+        $whereClauses[] = $filters[$filterKey]['where'];
     }
-} elseif ($filterKey !== 'all') {
-    $whereClauses[] = $filters[$filterKey]['where'];
-}
-if ($deptFilterAvailable && $selectedDeptId > 0) {
-    $whereClauses[] = 't.dept_id = ?';
-    $types .= 'i';
-    $params[] = $selectedDeptId;
+    if ($deptFilterAvailable && $selectedDeptId > 0) {
+        $whereClauses[] = 't.dept_id = ?';
+        $types .= 'i';
+        $params[] = $selectedDeptId;
+    }
 }
 if ($query !== '') {
     $like = '%' . $query . '%';
@@ -179,7 +189,7 @@ if ($query !== '') {
 //   - Abiertos/pendientes/en camino: t.closed IS NULL
 //   - Cerrados sin reporte: tr.billing_status IS NULL
 //   - Cerrados con reporte pendiente: tr.billing_status = 'pending'
-if ($dateFrom !== '' || $dateTo !== '') {
+if ($query === '' && ($dateFrom !== '' || $dateTo !== '')) {
     // tr proviene del LEFT JOIN ticket_reports tr del SELECT principal.
     // Si no hay reporte, tr.billing_status es NULL (nunca = 'confirmed').
     // Estados finalizados: facturado, visita técnica, cotización.
@@ -239,7 +249,7 @@ if ($page > $totalPages) {
 }
 
 // Conteo del departamento seleccionado dentro de la vista actual (sin LIMIT)
-if ($deptFilterAvailable && $selectedDeptId > 0) {
+if ($query === '' && $deptFilterAvailable && $selectedDeptId > 0) {
     $sqlCnt = "SELECT COUNT(*) AS c\n"
         . "FROM tickets t\n"
         . "JOIN users u ON t.user_id = u.id\n"
@@ -270,13 +280,20 @@ $sql = "SELECT t.id, t.ticket_number, t.subject, t.dept_id, t.created, t.updated
                u.firstname AS user_first, u.lastname AS user_last, u.email AS user_email, u.company AS user_company,
                s.firstname AS staff_first, s.lastname AS staff_last,
                tr.billing_status,
-               (CASE WHEN tr.id IS NOT NULL THEN 1 ELSE 0 END) AS has_report
+               (CASE WHEN tr.id IS NOT NULL THEN 1 ELSE 0 END) AS has_report,
+               ta.status AS approval_status
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN staff s ON t.staff_id = s.id
         JOIN ticket_status ts ON t.status_id = ts.id
         JOIN priorities p ON t.priority_id = p.id
         LEFT JOIN ticket_reports tr ON tr.ticket_id = t.id
+        LEFT JOIN (
+            SELECT ta1.ticket_id, ta1.status
+            FROM ticket_approvals ta1
+            INNER JOIN (SELECT ticket_id, MAX(id) AS max_id FROM ticket_approvals GROUP BY ticket_id) ta_max
+                ON ta1.ticket_id = ta_max.ticket_id AND ta1.id = ta_max.max_id
+        ) ta ON ta.ticket_id = t.id
         $whereSql
         ORDER BY t.updated DESC
         LIMIT ?, ?";
@@ -635,10 +652,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && isset($_SESS
                             } catch (Throwable $eLog) { /* No bloqueante */ }
 
                             // Eliminar entradas/hilos si existen
-                            $hasThreads = $mysqli->query("SHOW TABLES LIKE 'threads'");
-                            $hasEntries = $mysqli->query("SHOW TABLES LIKE 'thread_entries'");
-                            $threadsOk = $hasThreads && $hasThreads->num_rows > 0;
-                            $entriesOk = $hasEntries && $hasEntries->num_rows > 0;
+                            $threadsOk = dbTableExists('threads');
+                            $entriesOk = dbTableExists('thread_entries');
                             if ($threadsOk && $entriesOk) {
                                 $sqlDelEntries = "DELETE te\n"
                                     . "FROM thread_entries te\n"
@@ -705,11 +720,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do']) && isset($_SESS
 
 // Datos para toolbars
 $staffOptions = [];
-$staffHasRole = false;
-if (isset($mysqli) && $mysqli) {
-    $col = $mysqli->query("SHOW COLUMNS FROM staff LIKE 'role'");
-    $staffHasRole = ($col && $col->num_rows > 0);
-}
+// Usar dbColumnExists() con caché en lugar de SHOW COLUMNS directo
+$staffHasRole = dbColumnExists('staff', 'role');
 
 // Staff options para asignación
 // Si estamos viendo un ticket, filtramos agentes por dept del ticket.

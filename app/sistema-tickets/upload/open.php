@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * CREAR TICKET
  * Formulario para que usuarios creen nuevos tickets
@@ -687,6 +687,7 @@ if ($_POST) {
                 $recipientCount = 0;
                 if ($adminNotifyEnabled) {
                     $recipientEmails = [];
+                    $recipientStaffIds = [];
                     if (ensureNotificationRecipientsTable()) {
                         $staffHasEmpresa = false;
                         try {
@@ -695,7 +696,7 @@ if ($_POST) {
                             $staffHasEmpresa = false;
                         }
 
-                        $sqlRcpt = "SELECT s.email\n"
+                        $sqlRcpt = "SELECT s.email, s.id\n"
                             . "FROM notification_recipients nr\n"
                             . "INNER JOIN staff s ON s.id = nr.staff_id\n"
                             . "WHERE nr.empresa_id = ? AND s.is_active = 1";
@@ -714,9 +715,26 @@ if ($_POST) {
                                 $rsRcpt = $stmtRcpt->get_result();
                                 while ($rsRcpt && ($rr = $rsRcpt->fetch_assoc())) {
                                     $em = strtolower(trim((string)($rr['email'] ?? '')));
-                                    if ($em === '' || !filter_var($em, FILTER_VALIDATE_EMAIL)) continue;
-                                    $recipientEmails[$em] = true;
+                                    $sid = (int)($rr['id'] ?? 0);
+                                    if ($em !== '' && filter_var($em, FILTER_VALIDATE_EMAIL)) {
+                                        $recipientEmails[$em] = true;
+                                    }
+                                    if ($sid > 0 && !isset($recipientStaffIds[$sid])) {
+                                        $recipientStaffIds[$sid] = true;
+                                    }
                                 }
+                            }
+                        }
+                    }
+
+                    // Insertar notificación de campanita
+                    if (!empty($recipientStaffIds)) {
+                        $msgCampana = 'Nuevo ticket #' . $ticket_number . ': ' . $subject;
+                        $stmtCampana = $mysqli->prepare('INSERT INTO notifications (staff_id, message, type, related_id, is_read, created_at) VALUES (?, ?, "ticket_created", ?, 0, NOW())');
+                        if ($stmtCampana) {
+                            foreach (array_keys($recipientStaffIds) as $sid) {
+                                $stmtCampana->bind_param('isi', $sid, $msgCampana, $ticket_id);
+                                $stmtCampana->execute();
                             }
                         }
                     }
@@ -755,6 +773,7 @@ if ($_POST) {
                         addLog('ticket_email_queue_trigger_failed', 'No se pudo disparar worker asíncrono', 'ticket', $ticket_id, 'staff', 0);
                     }
                 }
+                notifyOrgManagersOfNewTicket($mysqli, (int)$ticket_id, (int)$eid);
                 $_SESSION['flash_msg'] = 'Ticket creado exitosamente! Número: ' . (string)$ticket_number;
                 $_SESSION['new_ticket_id'] = (int)$ticket_id;
                 $_SESSION['prevent_open_back'] = 1;
@@ -886,9 +905,9 @@ if ($blockNewIfSignaturePending) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crear Ticket - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
+    <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
+    <link rel="stylesheet" href="scp/css/vendor/summernote-lite.min.css">
     <link rel="stylesheet" href="css/client_dark.css?v=<?php echo (int)@filemtime(__DIR__ . '/css/client_dark.css'); ?>">
     <style>
         textarea.is-invalid + .note-editor {
@@ -1089,7 +1108,7 @@ if ($blockNewIfSignaturePending) {
             border-color: #cbd5e1;
         }
         body.dark-mode .page-header .btn-light {
-            background: #27272a !important;
+            background: #000000 !important;
             color: #f4f4f5 !important;
             border-color: #3f3f46 !important;
         }
@@ -1108,7 +1127,7 @@ if ($blockNewIfSignaturePending) {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         body.dark-mode .form-card {
-            background: #18181b !important;
+            background: #000000 !important;
             border-color: #27272a !important;
             box-shadow: 0 12px 34px rgba(0, 0, 0, 0.15) !important;
         }
@@ -1440,7 +1459,7 @@ if ($blockNewIfSignaturePending) {
         body.dark-mode .form-card .form-control,
         body.dark-mode .form-card .form-select {
             border-color: #3f3f46;
-            background-color: #18181b;
+            background-color: #000000;
         }
         .form-card .form-control:focus,
         .form-card .form-select:focus {
@@ -1450,7 +1469,7 @@ if ($blockNewIfSignaturePending) {
         }
         body.dark-mode .form-card .form-control:focus,
         body.dark-mode .form-card .form-select:focus {
-            background-color: #27272a;
+            background-color: #000000;
         }
 
         .btn-row-submit {
@@ -1671,9 +1690,9 @@ if ($blockNewIfSignaturePending) {
                         .profile-dd-icon-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
                         .profile-dd-divider { border-color: #f1f5f9; opacity: 1; margin: 8px 0; }
                         
-                        body.dark-mode .profile-dropdown { background: #1a1a1a; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
+                        body.dark-mode .profile-dropdown { background: #000000; border-color: #2a2a2a; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); }
                         body.dark-mode .profile-dd-item { color: #cbd5e1; }
-                        body.dark-mode .profile-dd-item:hover { background: #252525; color: #f8fafc; }
+                        body.dark-mode .profile-dd-item:hover { background: #000000; color: #f8fafc; }
                         body.dark-mode .profile-dd-icon-default { background: rgba(255, 255, 255, 0.08); color: #94a3b8; }
                         body.dark-mode .profile-dd-icon-success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
                         body.dark-mode .profile-dd-danger { color: #ef4444; }
@@ -2496,10 +2515,10 @@ if ($blockNewIfSignaturePending) {
         })();
     </script>
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/lang/summernote-es-ES.min.js"></script>
+    <script src="scp/js/vendor/jquery-3.6.0.min.js"></script>
+    <script src="scp/js/vendor/bootstrap-5.3.0.bundle.min.js"></script>
+    <script src="scp/js/vendor/summernote-lite.min.js"></script>
+    <script src="scp/js/vendor/summernote-es-ES.min.js"></script>
 
     <script>
         (function(){
