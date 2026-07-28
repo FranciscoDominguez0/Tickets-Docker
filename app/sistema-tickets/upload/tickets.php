@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * VER TICKETS (USUARIO)
  * Lista de tickets del usuario
@@ -15,6 +15,18 @@ $eid = (int)($_SESSION['empresa_id'] ?? 0);
 if ($eid <= 0) $eid = 1;
 $uid = (int)($_SESSION['user_id'] ?? 0);
 
+$hasOrgManager = false;
+if ($uid > 0) {
+    $stmtM = $mysqli->prepare("SELECT 1 FROM user_organizations uo JOIN users u ON u.id = uo.user_id WHERE uo.organization_id = (SELECT organization_id FROM user_organizations WHERE user_id = ? LIMIT 1) AND u.org_tickets_view = 1 LIMIT 1");
+    if ($stmtM) {
+        $stmtM->bind_param('i', $uid);
+        $stmtM->execute();
+        $resM = $stmtM->get_result();
+        if ($resM->num_rows > 0) {
+            $hasOrgManager = true;
+        }
+    }
+}
 // AJAX o POST actions para cotizaciones del portal cliente
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'quote_action') {
     if (isset($_POST['csrf_token']) && Auth::validateCSRF($_POST['csrf_token'])) {
@@ -309,7 +321,7 @@ if ($isOrgExplorer) {
                 $docs = [];
                 
                 // Fetch Quotes
-                $stmtQ = $mysqli->prepare("SELECT id, title as subject, description as body_html, status, created_at, 'quote' as doc_type FROM quotes WHERE empresa_id = ? AND org_id = ?");
+                $stmtQ = $mysqli->prepare("SELECT id, title as subject, description as body_html, status, created_at, sucursal, 'quote' as doc_type FROM quotes WHERE empresa_id = ? AND org_id = ?");
                 if ($stmtQ) {
                     $stmtQ->bind_param('ii', $eid, $orgExplorerOrgId);
                     if ($stmtQ->execute()) {
@@ -760,8 +772,11 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#b91c1c">
+    <link rel="manifest" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/upload/manifest.json">
     <title>Mis Tickets - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
+    <link rel="apple-touch-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/pwa/apple-touch-icon-180x180.png">
     <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
     <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
     <style>
@@ -1737,9 +1752,34 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
                                         <span class="badge-soft" style="<?php echo html($statusBadgeStyle); ?>">
                                             <?php echo html($clientListStatusName); ?>
                                         </span>
-                                        <span class="badge-soft" style="<?php echo html($priorityBadgeStyle); ?>">
-                                            <?php echo html($ticket['priority_name']); ?>
-                                        </span>
+                                        <?php if ($hasOrgManager): ?>
+                                            <?php
+                                                $apprStatus = (!empty($ticket['approval_status']) && $ticket['approval_status'] !== 'none') ? $ticket['approval_status'] : 'pending';
+                                                $apprText = ucfirst($apprStatus);
+                                                $apprBg = '#f1f5f9'; $apprTextCol = '#475569'; $apprBorder = '#cbd5e1';
+                                                
+                                                if ($apprStatus === 'pending') {
+                                                    $apprText = 'Pendiente';
+                                                    $apprBg = '#f1f5f9'; $apprTextCol = '#475569'; $apprBorder = '#cbd5e1';
+                                                } elseif ($apprStatus === 'cotizacion') {
+                                                    $apprText = 'Cotización';
+                                                    $apprBg = '#ccfbf1'; $apprTextCol = '#0f766e'; $apprBorder = '#99f6e4';
+                                                } elseif ($apprStatus === 'aprobado') {
+                                                    $apprText = 'Aprobada';
+                                                    $apprBg = '#dcfce7'; $apprTextCol = '#166534'; $apprBorder = '#bbf7d0';
+                                                } elseif ($apprStatus === 'rechazado') {
+                                                    $apprText = 'Rechazada';
+                                                    $apprBg = '#ffe4e6'; $apprTextCol = '#9f1239'; $apprBorder = '#fecdd3';
+                                                }
+                                            ?>
+                                            <span class="badge-soft" style="background: <?php echo $apprBg; ?>; color: <?php echo $apprTextCol; ?>; border-color: <?php echo $apprBorder; ?>;">
+                                                Revisión: <?php echo html($apprText); ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="badge-soft" style="<?php echo html($priorityBadgeStyle); ?>">
+                                                <?php echo html($ticket['priority_name']); ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </div>
 
                                     <div class="ticket-card-foot">
@@ -2102,6 +2142,14 @@ if ($r = $stmtC->get_result()->fetch_assoc()) {
             poll(true);
             window.setInterval(function(){ poll(false); }, POLL_MS);
         })();
+    </script>
+    <?php $swPath = rtrim((string)parse_url(defined('APP_URL') ? APP_URL : '', PHP_URL_PATH), '/') . '/upload/sw.js'; ?>
+    <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('<?php echo $swPath; ?>').catch(function(err) {
+            console.warn('SW registration failed:', err);
+        });
+    }
     </script>
 </body>
 </html>

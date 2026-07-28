@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * VER COTIZACIÓN (USUARIO)
  * Detalle de cotización con hilo y adjuntos
@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_msg'] = 'Cotización aceptada exitosamente.';
             header("Location: view-quote.php?id=$qid");
             exit;
-        } elseif ($action === 'upload_purchase_order' && $quote['status'] === 'accepted') {
+        } elseif ($action === 'upload_purchase_order' && in_array($quote['status'], ['accepted', 'waiting_oc'])) {
             $dbPath = null;
             $filename = '';
             if (isset($_FILES['purchase_order']) && $_FILES['purchase_order']['error'] === UPLOAD_ERR_OK) {
@@ -146,6 +146,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($dbPath) {
+                if ($quote['status'] === 'waiting_oc') {
+                    $updStatus = $mysqli->prepare("UPDATE quotes SET status = 'accepted' WHERE id = ?");
+                    $updStatus->bind_param('i', $qid);
+                    $updStatus->execute();
+                    $quote['status'] = 'accepted';
+                }
+
                 $msg = $clientName . ' adjuntó la Orden de Compra.';
                 $insStmt = $mysqli->prepare("INSERT INTO quote_messages (quote_id, user_id, message, file_path) VALUES (?, ?, ?, ?)");
                 $insStmt->bind_param('iiss', $qid, $uid, $msg, $dbPath);
@@ -171,6 +178,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_msg'] = 'Cotización rechazada.';
             header("Location: view-quote.php?id=$qid");
             exit;
+        } elseif ($action === 'post_message' && in_array($quote['status'], ['pending', 'requested', 'answered'])) {
+            $msgText = trim($_POST['message'] ?? '');
+            if ($msgText !== '') {
+                $insStmt = $mysqli->prepare("INSERT INTO quote_messages (quote_id, user_id, message, created_at) VALUES (?, ?, ?, NOW())");
+                $insStmt->bind_param('iis', $qid, $uid, $msgText);
+                $insStmt->execute();
+                
+                $notifyAgent($clientName . ' ha enviado un mensaje.');
+                $_SESSION['flash_msg'] = 'Mensaje enviado correctamente.';
+            } else {
+                $reply_error = 'El mensaje no puede estar vacío.';
+            }
+            if ($msgText !== '') {
+                header("Location: view-quote.php?id=$qid");
+                exit;
+            }
         }
     }
 }
@@ -207,6 +230,7 @@ $statusColors = [
     'pending'  => ['bg' => '#f1f5f9', 'color' => '#475569', 'icon' => 'bi-clock-fill',       'label' => 'Pendiente de Solicitud'],
     'requested'=> ['bg' => '#fef9c3', 'color' => '#854d0e', 'icon' => 'bi-send-exclamation', 'label' => 'Solicitada'],
     'answered' => ['bg' => '#dbeafe', 'color' => '#1e40af', 'icon' => 'bi-reply-all-fill',   'label' => 'Esperando Aprobación'],
+    'waiting_oc'=> ['bg' => '#fef3c7', 'color' => '#b45309', 'icon' => 'bi-file-earmark-text-fill',  'label' => 'En espera O/C'],
     'accepted' => ['bg' => '#dcfce7', 'color' => '#166534', 'icon' => 'bi-check-circle-fill', 'label' => 'Aceptada'],
     'rejected' => ['bg' => '#fee2e2', 'color' => '#991b1b', 'icon' => 'bi-x-circle-fill',    'label' => 'Rechazada']
 ];
@@ -879,7 +903,7 @@ $stCol = $stInfo['color'];
                 body.dark-mode .quote-action-panel p { color: #94a3b8 !important; }
             </style>
 
-            <?php if ($quote['status'] === 'pending' || $quote['status'] === 'answered'): ?>
+            <?php if ($quote['status'] === 'pending' || ($quote['status'] === 'answered' && !empty($quote['file_path']))): ?>
             <div class="card-soft mt-4 quote-action-panel">
                 <div class="body p-4 text-center">
                     <?php if ($quote['status'] === 'pending'): ?>
@@ -901,7 +925,7 @@ $stCol = $stInfo['color'];
                                 </button>
                             </form>
                         </div>
-                    <?php elseif ($quote['status'] === 'answered'): ?>
+                    <?php elseif ($quote['status'] === 'answered' && !empty($quote['file_path'])): ?>
                         <h5 class="fw-bold mb-3">Resolución de Cotización</h5>
                         <p class="text-muted mb-4">Revisa la información proporcionada y el documento adjunto. Puedes aceptar o rechazar esta cotización.</p>
                         
@@ -926,7 +950,34 @@ $stCol = $stInfo['color'];
             </div>
             <?php endif; ?>
 
-            <?php if ($quote['status'] === 'accepted' && !$hasPurchaseOrder): ?>
+            <?php if ($quote['status'] === 'requested' || ($quote['status'] === 'answered' && empty($quote['file_path']))): ?>
+            <style>
+                .reply-box-card { background: #ffffff; border: 1px solid #e2e8f0; }
+                body.dark-mode .reply-box-card { background: #111827; border-color: #334155; }
+                body.dark-mode .reply-box-card label { color: #e2e8f0; }
+                body.dark-mode .reply-box-card textarea { background: #000000; color: #f8fafc; border-color: #334155; }
+                body.dark-mode .reply-box-card textarea:focus { border-color: #3b82f6; background: #000000; color: #ffffff; box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25); }
+            </style>
+            <div class="card-soft mt-4 mb-4 reply-box-card">
+                <div class="body p-3 p-md-4">
+                    <form method="POST" action="view-quote.php?id=<?php echo $qid; ?>" class="m-0">
+                        <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
+                        <input type="hidden" name="action_type" value="post_message">
+                        <div class="mb-3 text-start">
+                            <label class="form-label fw-bold"><i class="bi bi-reply-fill"></i> Responder</label>
+                            <textarea name="message" class="form-control" rows="3" placeholder="Escribe un mensaje para el técnico..." required style="border-radius: 12px; resize: vertical;"></textarea>
+                        </div>
+                        <div class="text-end">
+                            <button type="submit" class="btn btn-action-primary px-4 py-2" style="border-radius: 50rem;">
+                                <i class="bi bi-send-fill"></i> Enviar Mensaje
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if (in_array($quote['status'], ['accepted', 'waiting_oc']) && !$hasPurchaseOrder): ?>
             <style>
                 .accepted-oc-card {
                     background: linear-gradient(145deg, #ffffff, #fef2f2) !important;

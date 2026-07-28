@@ -58,9 +58,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     Auth::validateCSRF($_POST['csrf_token'] ?? '');
     $actionType = $_POST['action_type'] ?? '';
 
+    if ($actionType === 'set_waiting_oc') {
+        $updStmt = $mysqli->prepare("UPDATE quotes SET status = 'waiting_oc' WHERE id = ?");
+        if ($updStmt) {
+            $updStmt->bind_param('i', $id);
+            $updStmt->execute();
+            $_SESSION['flash_msg'] = 'Cotización marcada en espera de O/C (Orden de Compra).';
+        }
+        header("Location: cotizaciones.php?id=" . $id);
+        exit;
+    }
+
     if ($actionType === 'post_message') {
         $messageText = trim($_POST['message'] ?? '');
         $staffId = (int)($_SESSION['staff_id'] ?? 0);
+        $submittedKey = trim($_POST['idem_key'] ?? '');
+
+        // Idempotencia: si la clave ya fue consumida, redirigir sin duplicar
+        $sessionIdemKey = 'quote_idem_key_' . $id;
+        if ($submittedKey === '' || (isset($_SESSION[$sessionIdemKey]) && $_SESSION[$sessionIdemKey] !== $submittedKey)) {
+            header("Location: cotizaciones.php?id=" . $id);
+            exit;
+        }
 
         if (empty($messageText)) {
             $errors[] = 'El mensaje no puede estar vacío.';
@@ -117,6 +136,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Enviar correo de notificación al jefe de la organización
                     sendQuoteEmailToOrgBoss($id, $messageText, false, $mysqli, $dbPath);
                     
+                    // Consumir e invalidar la clave de idempotencia para evitar reenvíos
+                    unset($_SESSION[$sessionIdemKey]);
+
                     $_SESSION['flash_msg'] = 'Mensaje publicado correctamente.';
                     header("Location: cotizaciones.php?id=" . $id);
                     exit;

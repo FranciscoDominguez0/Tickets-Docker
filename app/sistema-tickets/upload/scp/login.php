@@ -64,7 +64,7 @@ if ($_POST) {
                 if ($staff) {
                     $_SESSION['user_login_time'] = time();
                     $_SESSION['staff_last_activity'] = time();
-                    $_SESSION['staff_login_ip'] = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                    $_SESSION['staff_login_ip'] = getUserIpAddress();
                     $_SESSION['show_agent_loading_overlay'] = 1;
                     $redirectTo = ((string)($_SESSION['staff_role'] ?? '') === 'superadmin')
                         ? 'superadmin/index.php'
@@ -88,7 +88,10 @@ if ($_POST) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#b91c1c">
+    <link rel="manifest" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/upload/manifest.json">
     <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
+    <link rel="apple-touch-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/pwa/apple-touch-icon-180x180.png">
     <title>Login Agente - <?php echo APP_NAME; ?></title>
     <link rel="stylesheet" href="../../publico/css/agent-login.css">
     <?php

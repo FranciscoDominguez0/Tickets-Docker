@@ -354,6 +354,15 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                 }
                 $stmt->bind_param('iii', $sid, $tid, $eid);
                 $ok = $stmt->execute();
+                if ($ok) {
+                    if ($isClosingStatus) {
+                        $logDetails = 'Ticket cerrado (estado: ' . $statusLabel . ') - Ticket: ' . ($ticketView['ticket_number'] ?? '') . ' - ' . ($ticketView['subject'] ?? '');
+                        addAuditLog('staff', (int)($_SESSION['staff_id'] ?? 0), 'ticket_closed', 'ticket', $tid, $logDetails);
+                    } else {
+                        $logDetails = 'Estado cambiado a: ' . $statusLabel . ' - Ticket: ' . ($ticketView['ticket_number'] ?? '') . ' - ' . ($ticketView['subject'] ?? '');
+                        addAuditLog('staff', (int)($_SESSION['staff_id'] ?? 0), 'ticket_status_changed', 'ticket', $tid, $logDetails);
+                    }
+                }
                 $msg = 'updated';
 
                 // Si cambió a En Camino (id=2), notificar al usuario
@@ -720,7 +729,7 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     }
                 }
             } elseif ($action === 'request_approval') {
-                requireRolePermission('ticket.edit', 'tickets.php?id=' . $tid);
+                requireRolePermission('org.reports', 'tickets.php?id=' . $tid);
                 $msg = 'approval_error';
 
                 $stmtPending = $mysqli->prepare("SELECT id FROM ticket_approvals WHERE ticket_id = ? AND status = 'pending' LIMIT 1");
@@ -1021,6 +1030,9 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                 $stmt = $mysqli->prepare("UPDATE tickets SET status_id = ?, updated = NOW() WHERE id = ? AND empresa_id = ?");
                 $stmt->bind_param('iii', $resolved_id, $tid, $eid);
                 $ok = $stmt->execute();
+                if ($ok) {
+                    addAuditLog('staff', (int)($_SESSION['staff_id'] ?? 0), 'ticket_status_changed', 'ticket', $tid, 'Ticket marcado como resuelto (auto)');
+                }
                 $msg = 'marked';
             } elseif ($action === 'transfer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 requireRolePermission('ticket.transfer', 'tickets.php?id=' . $tid);
@@ -1593,6 +1605,8 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
                     }
                     if ($stmt->execute()) {
                         $entry_id = (int) $mysqli->insert_id;
+                        $logDetails = 'Mensaje ' . ($is_internal ? 'Interno' : 'Público') . ' - Ticket: ' . ($ticketView['ticket_number'] ?? '') . ' - ' . ($ticketView['subject'] ?? '');
+                        addAuditLog('staff', $staff_id, 'thread_message_added', 'ticket', $tid, $logDetails);
 
                         // Auto status: when staff replies publicly and ticket is Open, move to In Progress
                         // Only if staff didn't change the status manually in the form.

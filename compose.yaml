@@ -25,15 +25,15 @@ services:
     restart: always
 
     environment:
-      MYSQL_ROOT_PASSWORD: 12345678
+      MYSQL_ROOT_PASSWORD: AdminV_RootPass2026!
 
       MYSQL_DATABASE: tickets_db
 
-      MYSQL_USER: administrador
-      MYSQL_PASSWORD: Panama26
+      MYSQL_USER: AdminV
+      MYSQL_PASSWORD: Panama2626.
 
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
 
     volumes:
       - db_data:/var/lib/mysql
@@ -44,12 +44,12 @@ services:
     restart: always
 
     ports:
-      - "8081:80"
+      - "127.0.0.1:8081:80"
 
     environment:
       PMA_HOST: db
       PMA_USER: root
-      PMA_PASSWORD: 12345678
+      PMA_PASSWORD: AdminV_RootPass2026!
 
     depends_on:
       - db
