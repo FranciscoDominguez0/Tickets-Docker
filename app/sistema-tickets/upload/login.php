@@ -86,6 +86,54 @@ if ($_POST) {
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <script>
+        window.HIDE_URLS = <?php echo defined('HIDE_URLS') && HIDE_URLS ? 'true' : 'false'; ?>;
+        
+        var originalPushState = history.pushState;
+        var originalReplaceState = history.replaceState;
+        
+        function getMaskedUrl(url) {
+            if (!window.HIDE_URLS || !url) return url;
+            try {
+                var a = document.createElement('a');
+                a.href = url;
+                var pathParts = a.pathname.split('/');
+                pathParts[pathParts.length - 1] = 'tickets.php';
+                return pathParts.join('/') + '#';
+            } catch(e) { return url; }
+        }
+        
+        history.pushState = function(state, title, url) {
+            return originalPushState.call(history, state, title, getMaskedUrl(url));
+        };
+        
+        history.replaceState = function(state, title, url) {
+            return originalReplaceState.call(history, state, title, getMaskedUrl(url));
+        };
+
+        if (window.HIDE_URLS) {
+            var currentActualUrl = window.location.pathname + window.location.search;
+            var genericPage = 'tickets.php';
+            var isGeneric = window.location.pathname.indexOf(genericPage) !== -1 && !window.location.search;
+            
+            var savedUrl = null;
+            try { savedUrl = sessionStorage.getItem('clientCurrentUrl'); } catch(e) {}
+            
+            if (isGeneric && savedUrl && savedUrl !== currentActualUrl) {
+                var isReload = false;
+                if (window.performance && window.performance.navigation) {
+                    isReload = window.performance.navigation.type === 1;
+                }
+                if (isReload) {
+                    window.location.replace(savedUrl);
+                }
+            } else {
+                try { sessionStorage.setItem('clientCurrentUrl', currentActualUrl); } catch(e) {}
+            }
+            
+            try { originalReplaceState.call(history, { scpUrl: currentActualUrl }, '', getMaskedUrl(window.location.href)); } catch (e) {}
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#b91c1c">
@@ -93,6 +141,12 @@ if ($_POST) {
     <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
     <link rel="apple-touch-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/pwa/apple-touch-icon-180x180.png">
     <title>Login - <?php echo APP_NAME; ?></title>
+    <?php
+    echo renderOpenGraphTags([
+        'title'       => 'Acceso a Clientes - ' . APP_NAME,
+        'description' => 'Inicia sesión en tu cuenta para gestionar y consultar tus tickets de soporte técnico.',
+    ]);
+    ?>
     <?php $loginCssV = (int)(@filemtime(__DIR__ . '/../publico/css/login.css') ?: 1); ?>
     <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
     <link rel="stylesheet" href="../publico/css/login.css?v=<?php echo $loginCssV; ?>">

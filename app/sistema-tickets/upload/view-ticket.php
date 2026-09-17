@@ -683,9 +683,64 @@ function humanSize($bytes) {
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <script>
+        window.HIDE_URLS = <?php echo defined('HIDE_URLS') && HIDE_URLS ? 'true' : 'false'; ?>;
+        
+        var originalPushState = history.pushState;
+        var originalReplaceState = history.replaceState;
+        
+        function getMaskedUrl(url) {
+            if (!window.HIDE_URLS || !url) return url;
+            try {
+                var a = document.createElement('a');
+                a.href = url;
+                var pathParts = a.pathname.split('/');
+                pathParts[pathParts.length - 1] = 'tickets.php';
+                return pathParts.join('/') + '#';
+            } catch(e) { return url; }
+        }
+        
+        history.pushState = function(state, title, url) {
+            return originalPushState.call(history, state, title, getMaskedUrl(url));
+        };
+        
+        history.replaceState = function(state, title, url) {
+            return originalReplaceState.call(history, state, title, getMaskedUrl(url));
+        };
+
+        if (window.HIDE_URLS) {
+            var currentActualUrl = window.location.pathname + window.location.search;
+            var genericPage = 'tickets.php';
+            var isGeneric = window.location.pathname.indexOf(genericPage) !== -1 && !window.location.search;
+            
+            var savedUrl = null;
+            try { savedUrl = sessionStorage.getItem('clientCurrentUrl'); } catch(e) {}
+            
+            if (isGeneric && savedUrl && savedUrl !== currentActualUrl) {
+                var isReload = false;
+                if (window.performance && window.performance.navigation) {
+                    isReload = window.performance.navigation.type === 1;
+                }
+                if (isReload) {
+                    window.location.replace(savedUrl);
+                }
+            } else {
+                try { sessionStorage.setItem('clientCurrentUrl', currentActualUrl); } catch(e) {}
+            }
+            
+            try { originalReplaceState.call(history, { scpUrl: currentActualUrl }, '', getMaskedUrl(window.location.href)); } catch (e) {}
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo html($t['ticket_number']); ?> - <?php echo APP_NAME; ?></title>
+    <?php
+    $ogDesc = 'Ticket #' . ($t['ticket_number'] ?? '') . ' | Estado: ' . ($t['status_name'] ?? 'Abierto') . ' | Prioridad: ' . ($t['priority_name'] ?? 'Normal') . ' — ' . ($t['subject'] ?? '');
+    echo renderOpenGraphTags([
+        'title'       => 'Ticket #' . ($t['ticket_number'] ?? '') . ' - ' . ($t['subject'] ?? ''),
+        'description' => $ogDesc,
+    ]);
+    ?>
     <link rel="icon" type="image/x-icon" href="<?php echo html(rtrim(defined('APP_URL') ? APP_URL : '', '/')); ?>/publico/img/favicon.ico">
     <link rel="stylesheet" href="scp/css/vendor/bootstrap-5.3.0.min.css">
     <link rel="stylesheet" href="scp/css/vendor/bootstrap-icons-1.11.1.css">
@@ -711,7 +766,24 @@ function humanSize($bytes) {
             color: var(--badge-color-dark) !important;
             border-color: var(--badge-border-dark) !important;
         }
-
+        body.dark-mode .signature-canvas { filter: invert(1); }
+        .signature-img-view { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12)); background: transparent; border: 1px solid #e2e8f0; }
+        body.dark-mode .signature-img-view { filter: invert(1) drop-shadow(0 4px 8px rgba(255,255,255,0.12)); border: 1px solid #334155; }
+        .org-readonly-notice {
+            background: linear-gradient(to right, rgba(239, 68, 68, 0.05), rgba(239, 68, 68, 0.02));
+            border-left: 4px solid #ef4444;
+            padding: 1rem 1.25rem;
+            border-radius: 0 12px 12px 0;
+            margin-bottom: 2rem;
+            color: #b91c1c;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        body.dark-mode .org-readonly-notice {
+            background: linear-gradient(to right, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05));
+            color: #fca5a5;
+        }
         body::before {
             content: '';
             position: fixed;
@@ -2665,7 +2737,7 @@ function humanSize($bytes) {
                         <h6 class="mb-0 text-muted" style="font-size: 0.85rem; font-weight: 800; text-transform: uppercase;"><i class="bi bi-pen-fill"></i> Firma de conformidad</h6>
                     </div>
                     <div class="body py-2 text-center" style="background: #ffffff;">
-                        <img src="<?php echo html($ticketClientSignatureUrl); ?>" alt="Firma del cliente" style="max-height: 120px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12)); background: #ffffff; padding: 6px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <img src="<?php echo html($ticketClientSignatureUrl); ?>" alt="Firma del cliente" class="signature-img-view" style="max-height: 120px; padding: 6px; border-radius: 8px;">
                         <div class="mt-1 text-muted" style="font-size: 0.75rem;">Documento firmado digitalmente el <?php echo !empty($t['closed']) ? date('d/m/Y h:i A', strtotime($t['closed'])) : '-'; ?></div>
                     </div>
                 </div>
@@ -3496,7 +3568,7 @@ function humanSize($bytes) {
                     </button>
                 </div>
                 <div style="border: 2px dashed #cbd5e1; border-radius: 20px; background: #ffffff; overflow: hidden; position: relative; transition: all 0.2s ease; height: 230px; width: 100%; touch-action: none;">
-                    <canvas id="clientSignatureCanvas" style="width: 100%; height: 100%; cursor: crosshair; touch-action: none; display: block;"></canvas>
+                    <canvas id="clientSignatureCanvas" class="signature-canvas" style="width: 100%; height: 100%; cursor: crosshair; touch-action: none; display: block;"></canvas>
                     <div style="position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; color: #94a3b8; font-size: 0.8rem; pointer-events: none; opacity: 0.6; font-weight: 600;">
                         Dibuja tu firma en este espacio
                     </div>

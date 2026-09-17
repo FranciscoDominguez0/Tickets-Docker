@@ -81,6 +81,174 @@ if ($ticketClientSignaturePath !== '') {
 }
 ?>
 
+<style>
+/* Botón Tomar Ticket Personalizado de Marca */
+.btn-claim-ticket-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+    color: #ffffff !important;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: none;
+    text-decoration: none !important;
+    box-shadow: 0 4px 12px rgba(185, 28, 28, 0.25);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.btn-claim-ticket-brand:hover {
+    background: linear-gradient(135deg, #f87171 0%, #991b1b 100%);
+    box-shadow: 0 6px 16px rgba(185, 28, 28, 0.38);
+    transform: translateY(-1px);
+}
+
+.btn-claim-ticket-brand:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 6px rgba(185, 28, 28, 0.2);
+}
+
+body.dark-mode .btn-claim-ticket-brand {
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.2);
+}
+body.dark-mode .btn-claim-ticket-brand:hover {
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.3);
+}
+
+/* Botón de ver detalles en requisición */
+.btn-requisition-view {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1.5px solid #ef4444;
+    color: #ef4444 !important;
+    background: transparent;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 20px;
+    text-decoration: none !important;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+.btn-requisition-view:hover {
+    background: #ef4444;
+    color: #fff !important;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
+}
+
+body.dark-mode .btn-requisition-view {
+    border-color: #ef4444;
+    color: #ef4444 !important;
+}
+body.dark-mode .btn-requisition-view:hover {
+    background: #ef4444;
+    color: #fff !important;
+}
+
+/* Responsivo para tabla de requisiciones en modo celular */
+@media (max-width: 768px) {
+    .requisitions-table-wrapper {
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+    .requisitions-table {
+        background: transparent !important;
+    }
+    .requisitions-table thead {
+        display: none;
+    }
+    .requisitions-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .requisitions-table tr {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+    body.dark-mode .requisitions-table tr {
+        background: #000000;
+        border-color: #333333;
+    }
+    .requisitions-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        border: none !important;
+        padding: 0 !important;
+        text-align: left !important;
+    }
+    /* Estilos por columna en móvil */
+    .requisitions-table td:nth-child(1)::before {
+        content: "ID:";
+        font-weight: 700;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    .requisitions-table td:nth-child(1) {
+        font-size: 0.9rem;
+        font-weight: 700;
+    }
+    
+    .requisitions-table td:nth-child(2)::before {
+        content: "Solicitante:";
+        font-weight: 700;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    .requisitions-table td:nth-child(2) {
+        font-size: 0.9rem;
+    }
+    
+    .requisitions-table td:nth-child(3)::before {
+        content: "Estado:";
+        font-weight: 700;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    
+    .requisitions-table td:nth-child(4)::before {
+        content: "Fecha:";
+        font-weight: 700;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    .requisitions-table td:nth-child(4) {
+        font-size: 0.85rem;
+    }
+    
+    .requisitions-table td:nth-child(5) {
+        margin-top: 6px;
+        border-top: 1px solid #f1f5f9 !important;
+        padding-top: 10px !important;
+    }
+    body.dark-mode .requisitions-table td:nth-child(5) {
+        border-top-color: #222 !important;
+    }
+    .requisitions-table td:nth-child(5)::before {
+        content: "";
+    }
+    .requisitions-table td:nth-child(5) .btn-requisition-view {
+        width: 100%;
+        padding: 8px 16px;
+    }
+}
+</style>
+
 <div class="ticket-view-wrap">
     <?php if (isset($_GET['msg']) && $_GET['msg'] === 'closed_report' && roleHasPermission('ticket.reports')): ?>
         <style>
@@ -280,12 +448,12 @@ if ($ticketClientSignaturePath !== '') {
                 transition: all 0.2s;
                 line-height: 1;
             }
-            .dz-preview-remove:hover {
-                background: #ef4444;
-                color: #fff;
-                box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
-            }
-        </style>
+.dz-preview-remove:hover {
+    background: #ef4444;
+    color: #fff;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
+}
+</style>
 
         <div id="tv-billing-toast" role="alert" aria-live="assertive">
             <div class="tvb-card">
@@ -413,6 +581,12 @@ if ($ticketClientSignaturePath !== '') {
 
         <div class="ticket-view-actions">
             <a href="<?php echo html($backUrlFinal); ?>" class="btn-icon" title="Volver"><i class="bi bi-arrow-left"></i></a>
+            <?php if (empty($t['staff_id']) && roleHasPermission('ticket.view_all')): ?>
+                <a href="tickets.php?id=<?php echo $tid; ?>&action=claim" class="btn-claim-ticket-brand" id="btn-claim-ticket">
+                    <i class="bi bi-hand-index-thumb"></i>
+                    <span>Tomar Ticket</span>
+                </a>
+            <?php endif; ?>
             <div class="dropdown d-inline-block">
                 <button class="btn-icon dropdown-toggle <?php echo ($canTicketEdit || $canTicketClose) ? '' : 'disabled'; ?>" type="button" <?php echo ($canTicketEdit || $canTicketClose) ? 'data-bs-toggle="dropdown"' : 'onclick="showNoPermissionAlert(\'cambiar el estado de este ticket\'); return false;"'; ?> title="<?php echo ($canTicketEdit || $canTicketClose) ? 'Estado' : 'Sin permiso'; ?>" style="<?php echo ($canTicketEdit || $canTicketClose) ? '' : 'pointer-events: auto; cursor: not-allowed;'; ?>">
                     <i class="bi bi-flag"></i>
@@ -480,22 +654,10 @@ if ($ticketClientSignaturePath !== '') {
                     $empresaId = function_exists('empresaId') ? (int)empresaId() : (int)($_SESSION['empresa_id'] ?? 0);
                     $st = null;
 
-                    $hasStaffDepartmentsTable = false;
-                    if (isset($mysqli) && $mysqli) {
-                        try {
-                            $rt = $mysqli->query("SHOW TABLES LIKE 'staff_departments'");
-                            $hasStaffDepartmentsTable = ($rt && $rt->num_rows > 0);
-                        } catch (Throwable $e) {}
-                    }
-
+                    // staff_departments confirmado en schema
                     if ($tdept > 0) {
-                        if ($hasStaffDepartmentsTable) {
-                            $stmtSt = $mysqli->prepare("SELECT DISTINCT s.id, s.firstname, s.lastname FROM staff s JOIN staff_departments sd ON sd.staff_id = s.id WHERE s.empresa_id = ? AND s.is_active = 1 AND sd.dept_id = ? ORDER BY s.firstname, s.lastname");
-                            if ($stmtSt) { $stmtSt->bind_param('ii', $empresaId, $tdept); $stmtSt->execute(); $st = $stmtSt->get_result(); }
-                        } else {
-                            $stmtSt = $mysqli->prepare("SELECT id, firstname, lastname FROM staff WHERE empresa_id = ? AND is_active = 1 AND (dept_id = ? OR dept_id = ?) ORDER BY firstname, lastname");
-                            if ($stmtSt) { $stmtSt->bind_param('iii', $empresaId, $tdept, $gd); $stmtSt->execute(); $st = $stmtSt->get_result(); }
-                        }
+                        $stmtSt = $mysqli->prepare("SELECT DISTINCT s.id, s.firstname, s.lastname FROM staff s JOIN staff_departments sd ON sd.staff_id = s.id WHERE s.empresa_id = ? AND s.is_active = 1 AND sd.dept_id = ? ORDER BY s.firstname, s.lastname");
+                        if ($stmtSt) { $stmtSt->bind_param('ii', $empresaId, $tdept); $stmtSt->execute(); $st = $stmtSt->get_result(); }
                     } else {
                         $stmtSt = $mysqli->prepare("SELECT id, firstname, lastname FROM staff WHERE empresa_id = ? AND is_active = 1 ORDER BY firstname, lastname");
                         if ($stmtSt) { $stmtSt->bind_param('i', $empresaId); $stmtSt->execute(); $st = $stmtSt->get_result(); }
@@ -519,6 +681,7 @@ if ($ticketClientSignaturePath !== '') {
             </button>
 
             <button class="btn-icon" title="Imprimir" type="button" data-action="print"><i class="bi bi-printer"></i></button>
+
 
             <div class="dropdown d-inline-block">
                 <button class="btn-icon dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Configuración">
@@ -555,6 +718,13 @@ if ($ticketClientSignaturePath !== '') {
                         <div class="creative-dropdown-icon"><i class="bi bi-share"></i></div>
                         <span>Administrar referidos</span>
                     </a>
+
+                    <?php if (roleHasPermission('requisitions.view')): ?>
+                    <a class="creative-dropdown-item" href="requisitions.php?a=new&ticket_id=<?php echo $tid; ?>">
+                        <div class="creative-dropdown-icon"><i class="bi bi-box-seam"></i></div>
+                        <span>Solicitud de Inventario</span>
+                    </a>
+                    <?php endif; ?>
                     
 
                     
@@ -1317,10 +1487,86 @@ if ($ticketClientSignaturePath !== '') {
         </div>
     </div>
 
+    <?php
+    $countRequisitions = 0;
+    if (dbTableExists('requisitions')) {
+        $stmtR = $mysqli->prepare("SELECT COUNT(*) as c FROM requisitions WHERE ticket_id = ? AND empresa_id = ?");
+        if ($stmtR) {
+            $stmtR->bind_param('ii', $tid, $eid);
+            $stmtR->execute();
+            $countRequisitions = (int)($stmtR->get_result()->fetch_assoc()['c'] ?? 0);
+        }
+    }
+    ?>
+
     <!-- Pestañas: Hilo del ticket -->
     <ul class="ticket-view-tabs" role="tablist">
         <li><a class="tab active" href="#thread"><i class="bi bi-chat-left-text"></i> Hilo del Ticket (<?php echo $countPublic; ?>)</a></li>
+        <?php if ($countRequisitions > 0 || roleHasPermission('requisitions.view')): ?>
+        <li><a class="tab" href="#requisitions"><i class="bi bi-box-seam"></i> Inventario (<?php echo $countRequisitions; ?>)</a></li>
+        <?php endif; ?>
     </ul>
+
+    <!-- Tab Inventario -->
+    <div class="ticket-view-tab-content" id="requisitions" style="display: none;">
+        <div class="p-4">
+            <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
+                <h4 class="mb-0 fw-bold d-flex align-items-center"><i class="bi bi-box-seam text-danger me-2 fs-3"></i> Solicitudes de Inventario Asociadas</h4>
+                <?php if (roleHasPermission('requisitions.view')): ?>
+                <a href="requisitions.php?a=new&ticket_id=<?php echo $tid; ?>" class="btn btn-danger fw-bold shadow-sm rounded-pill px-4"><i class="bi bi-plus-lg me-2"></i> Nueva Solicitud</a>
+                <?php endif; ?>
+            </div>
+            
+            <?php
+            if ($countRequisitions > 0) {
+                $stmtReqs = $mysqli->prepare("SELECT id, client_name, status, created_at FROM requisitions WHERE ticket_id = ? AND empresa_id = ? ORDER BY id DESC");
+                $stmtReqs->bind_param('ii', $tid, $eid);
+                $stmtReqs->execute();
+                $reqsRes = $stmtReqs->get_result();
+                
+                echo '<div class="table-responsive border rounded-4 shadow-sm bg-body requisitions-table-wrapper">';
+                echo '<table class="table table-hover align-middle mb-0 requisitions-table">';
+                echo '<thead class="table-light"><tr><th class="ps-4 py-3 text-uppercase small fw-bold text-muted">ID</th><th class="py-3 text-uppercase small fw-bold text-muted">Solicitante / Cliente</th><th class="py-3 text-uppercase small fw-bold text-muted">Estado</th><th class="py-3 text-uppercase small fw-bold text-muted">Fecha</th><th class="text-end pe-4 py-3 text-uppercase small fw-bold text-muted">Acciones</th></tr></thead><tbody>';
+                while ($rq = $reqsRes->fetch_assoc()) {
+                    $statusBadge = ($rq['status'] === 'pending') ? '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-3 py-2"><i class="bi bi-clock me-1"></i>Pendiente</span>' : '<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle rounded-pill px-3 py-2"><i class="bi bi-check-all me-2"></i>Entregado</span>';
+                    echo '<tr>';
+                    echo '<td class="fw-bold ps-4 text-primary">#REQ-' . str_pad($rq['id'], 5, '0', STR_PAD_LEFT) . '</td>';
+                    echo '<td class="fw-semibold">' . html($rq['client_name']) . '</td>';
+                    echo '<td>' . $statusBadge . '</td>';
+                    echo '<td class="text-muted small"><i class="bi bi-calendar-event me-2"></i>' . date('d M, Y h:i A', strtotime($rq['created_at'])) . '</td>';
+                    echo '<td class="text-end pe-4"><a href="requisitions.php?a=view&id='.$rq['id'].'" class="btn-requisition-view">Ver Detalles <i class="bi bi-arrow-right-short ms-1"></i></a></td>';
+                    echo '</tr>';
+                }
+                echo '</tbody></table></div>';
+            } else {
+                echo '<div class="alert bg-body-tertiary border text-center text-muted py-5 rounded-4 shadow-sm"><i class="bi bi-inbox fs-1 d-block mb-3 text-secondary opacity-50"></i> <span class="fw-medium fs-5">No hay solicitudes de inventario asociadas a este ticket.</span></div>';
+            }
+            ?>
+        </div>
+    </div>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabs = document.querySelectorAll('.ticket-view-tabs .tab');
+        const contents = document.querySelectorAll('.ticket-view-tab-content');
+        
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function(e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href').substring(1);
+                
+                // Remove active from all tabs and contents
+                tabs.forEach(t => t.classList.remove('active'));
+                contents.forEach(c => c.style.display = 'none');
+                
+                // Add active to current
+                this.classList.add('active');
+                const targetContent = document.getElementById(targetId);
+                if (targetContent) targetContent.style.display = 'block';
+            });
+        });
+    });
+    </script>
 
     <div class="ticket-view-tab-content" id="thread" data-print-area="thread">
         <div class="ticket-print-header">
@@ -1755,10 +2001,7 @@ if ($ticketClientSignaturePath !== '') {
     </div>
 </div>
 
-<link href="../css/vendor/summernote-lite.min.css" rel="stylesheet">
-<script src="../js/vendor/jquery-3.6.0.min.js"></script>
-<script src="../js/vendor/summernote-lite.min.js"></script>
-<script src="../js/vendor/summernote-es-ES.min.js"></script>
+<!-- Summernote y jQuery se cargan globalmente en route-scripts/route-css -->
 <div class="modal fade" id="vigitecImageInsertModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -1928,7 +2171,7 @@ if ($ticketClientSignaturePath !== '') {
     }
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" async defer></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var staffHasSignature = <?php echo !empty($staff_has_signature) ? 'true' : 'false'; ?>;
@@ -2186,7 +2429,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }).render();
         };
 
-        var isMobile = window.innerWidth <= 768;
+        var isMobile = window.matchMedia('(max-width: 991px)').matches;
         var toolbarConfig = isMobile ? [
             ['font', ['bold', 'italic', 'underline', 'clear']],
             ['insert', ['link', 'myImage']],
@@ -2520,9 +2763,10 @@ document.addEventListener('DOMContentLoaded', function() {
     var modalChoiceEl = document.getElementById('modalCloseChoiceScp');
     var modalNoSigEl = document.getElementById('modalCloseNoSignatureScp');
     var modalWithSigEl = document.getElementById('modalCloseWithSignatureScp');
-    var modalChoice = (modalChoiceEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(modalChoiceEl) : null;
-    var modalNoSig = (modalNoSigEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(modalNoSigEl) : null;
-    var modalWithSig = (modalWithSigEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(modalWithSigEl) : null;
+
+    function getBsModal(el) {
+        return (el && typeof bootstrap !== 'undefined') ? bootstrap.Modal.getOrCreateInstance(el) : null;
+    }
 
     var closeStatusLabel = document.getElementById('closeChoiceStatusLabelScp');
     var btnWithSig = document.getElementById('btnCloseWithSignatureScp');
@@ -2586,7 +2830,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 e.preventDefault();
                 closingStatusId = parseInt(this.getAttribute('data-close-status-id') || '0', 10);
                 closingStatusName = String(this.getAttribute('data-close-status-name') || '');
-                if (!closingStatusId || !modalChoice) return;
+                var mChoice = getBsModal(modalChoiceEl);
+                if (!closingStatusId || !mChoice) return;
                 
                 if (closingStatusName.toLowerCase().indexOf('resuelto') !== -1 || closingStatusName.toLowerCase().indexOf('resolved') !== -1) {
                     window.location.href = 'tickets.php?id=' + ticketId + '&action=status&status_id=' + closingStatusId;
@@ -2600,7 +2845,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 var msgYes = document.getElementById('closeMessageWithSigScp');
                 if (msgYes) msgYes.value = '';
-                modalChoice.show();
+                mChoice.show();
             });
         });
     }
@@ -2751,14 +2996,18 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btnWithSig) {
 
         btnWithSig.addEventListener('click', function () {
-            if (modalChoice) modalChoice.hide();
-            if (modalWithSig) modalWithSig.show();
+            var mChoice = getBsModal(modalChoiceEl);
+            var mWithSig = getBsModal(modalWithSigEl);
+            if (mChoice) mChoice.hide();
+            if (mWithSig) mWithSig.show();
         });
     }
     if (btnWithoutSig) {
         btnWithoutSig.addEventListener('click', function () {
-            if (modalChoice) modalChoice.hide();
-            if (modalNoSig) modalNoSig.show();
+            var mChoice = getBsModal(modalChoiceEl);
+            var mNoSig = getBsModal(modalNoSigEl);
+            if (mChoice) mChoice.hide();
+            if (mNoSig) mNoSig.show();
         });
     }
     if (btnConfirmNoSig) {
@@ -2797,7 +3046,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             closingStatusId = parseInt(preferredClose.getAttribute('data-close-status-id') || '0', 10);
             closingStatusName = String(preferredClose.getAttribute('data-close-status-name') || '');
-            if (!closingStatusId || !modalChoice) {
+            var mChoice = getBsModal(modalChoiceEl);
+            if (!closingStatusId || !mChoice) {
                 alert('No se pudo iniciar el cierre del ticket.');
                 return;
             }
@@ -2814,7 +3064,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             var msgYes = document.getElementById('closeMessageWithSigScp');
             if (msgYes) msgYes.value = '';
-            modalChoice.show();
+            mChoice.show();
         });
     }
 
@@ -2849,7 +3099,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.beginPath();
         ctx.moveTo(lastX, lastY);
         ctx.lineTo(pos.x, pos.y);
-        ctx.strokeStyle = '#111827';
+        ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2.4;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';

@@ -1,4 +1,5 @@
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+    function initSidebar() {
     var body = document.body;
     var sidebar = document.querySelector('.sidebar');
     var sidebarToggle = document.getElementById('scpSidebarToggle');
@@ -6,6 +7,50 @@ document.addEventListener('DOMContentLoaded', function () {
     var mobileQuery = window.matchMedia('(max-width: 991px)');
     var SIDEBAR_STATE_KEY = 'scp_sidebar_collapsed_v1';
     var SIDEBAR_STATE_COOKIE = 'scp_sidebar_collapsed';
+    // La gestión de estado de subnavs en cliente (persistencia/acordeón) aplica
+    // SOLO al panel de agente. Admin y superadmin conservan el render del
+    // servidor: al cambiar de opción, la sección anterior se cierra sola.
+    var isAgentPanel = (body.getAttribute('data-panel') === 'agent');
+    // Estado expandido/colapsado de cada grupo con sub-opciones, persistido por panel
+    var SUBNAV_KEY = 'scp_subnav_open_' + (body.getAttribute('data-panel') || 'default');
+
+    function getOpenSubnavs() {
+        return [];
+    }
+
+    function persistOpenSubnavs() {
+        // Deshabilitado: confiar en backend y spa-nav.js para el estado activo.
+        // Esto evita que sub-menús de otras secciones queden "atrapados" abiertos.
+        return [];
+    }
+
+    // Exponer para que spa-nav.js llame sin error
+    window.__scpPersistSubnavState = persistOpenSubnavs;
+
+    // Solo restaura el acordeón basado en la ruta activa.
+    function restoreOpenSubnavs() {
+        if (!isAgentPanel) return;
+        var firstVisit = (body.getAttribute('data-sidebar-first') === '1');
+        var activeLink = sidebar ? sidebar.querySelector('.sidebar-subnav a.sidebar-link.active') : null;
+        var activeGroup = activeLink ? activeLink.closest('li.sidebar-group') : null;
+        
+        document.querySelectorAll('li.sidebar-group').forEach(function (group) {
+            var toggle = group.querySelector(':scope > .sidebar-toggle');
+            var subnav = group.querySelector(':scope > .sidebar-subnav');
+            if (!toggle || !subnav) return;
+            var isActiveGroup = (activeGroup === group);
+            
+            if (isActiveGroup && !firstVisit) {
+                subnav.classList.add('open');
+                toggle.classList.add('expanded', 'active');
+                toggle.setAttribute('aria-expanded', 'true');
+            } else {
+                subnav.classList.remove('open');
+                toggle.classList.remove('expanded', 'active');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
 
     function persistSidebarCookie(value) {
         var maxAge = 60 * 60 * 24 * 365;
@@ -104,6 +149,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     hydrateSidebarState();
+    restoreOpenSubnavs();
     body.classList.add('sidebar-ready');
 
     if (sidebarToggle && sidebar) {
@@ -158,6 +204,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!subnav) return;
             var isOpen = subnav.classList.toggle('open');
             btn.classList.toggle('expanded', isOpen);
+            btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            if (isAgentPanel) persistOpenSubnavs();
         });
     });
 
@@ -225,5 +273,16 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
     }
-});
+    }
+
+    // Inicializar el sidebar en cuanto el DOM del sidebar esté disponible (script al
+    // final del body), para que el estado (sidebar-ready, colapsado) quede aplicado
+    // antes del primer paint y no haya parpadeo al navegar entre opciones.
+    // Si el sidebar aún no existe (script en otro lugar), esperar a DOMContentLoaded.
+    if (document.querySelector('.sidebar')) {
+        initSidebar();
+    } else {
+        document.addEventListener('DOMContentLoaded', initSidebar);
+    }
+})();
 

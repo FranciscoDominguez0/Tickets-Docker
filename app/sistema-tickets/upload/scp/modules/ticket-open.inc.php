@@ -365,14 +365,13 @@ body.dark-mode .text-muted {
         <input type="hidden" name="do" value="open">
         <input type="hidden" name="csrf_token" value="<?php echo html($_SESSION['csrf_token'] ?? ''); ?>">
         <input type="hidden" name="user_id" value="<?php echo $selected_uid ? (int)$selected_uid : ''; ?>">
-        <input type="hidden" name="dept_id" id="open_dept_id" value="<?php echo (int)$selected_dept_id; ?>">
         <input type="hidden" name="walkin_default_user_id" id="walkin_default_user_id" value="<?php echo (int)$walkinDefaultUserId; ?>">
 
         <!-- Cliente -->
         <div class="open-section">
             <div class="section-title"><i class="bi bi-person"></i> Cliente</div>
             <div class="mb-0">
-                <label class="form-label">Usuario solicitante <span class="required">*</span></label>
+                <label class="form-label">Cliente solicitante <span class="required">*</span></label>
                 <div class="user-select-card">
                     <div class="user-avatar" id="open_user_avatar"><?php echo $walkinSelected ? 'ND' : html($initials); ?></div>
                     <div class="user-info" id="open_user_display">
@@ -384,12 +383,17 @@ body.dark-mode .text-muted {
                                 <div class="user-email"><?php echo html($userEmail); ?></div>
                             <?php endif; ?>
                         <?php else: ?>
-                            <div class="user-name" style="color:#94a3b8; font-weight:500;">Seleccione un usuario</div>
+                            <div class="user-name" style="color:#94a3b8; font-weight:500;">Seleccione un cliente</div>
                         <?php endif; ?>
                     </div>
-                    <button type="button" class="btn btn-outline-danger btn-change" id="btn_change_user" data-bs-toggle="modal" data-bs-target="#modalUserSearch" style="border-radius: 10px; font-weight: 600;">
-                        <i class="bi bi-search text-danger"></i> Buscar
-                    </button>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <button type="button" class="btn btn-outline-danger btn-change" id="btn_change_user" data-bs-toggle="modal" data-bs-target="#modalUserSearch" style="border-radius: 10px; font-weight: 600;">
+                            <i class="bi bi-search text-danger"></i> Buscar Cliente
+                        </button>
+                        <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalQuickCreateClient" style="border-radius: 10px; font-weight: 600;">
+                            <i class="bi bi-person-plus-fill"></i> Crear Cliente
+                        </button>
+                    </div>
                 </div>
 
                 <?php if ($walkinDefaultUserId > 0 && $walkinDefaultUser): ?>
@@ -424,31 +428,19 @@ body.dark-mode .text-muted {
                     <input type="text" name="subject" class="form-control" placeholder="<?php echo $walkinSelected ? 'Nombre del cliente no recurrente' : 'Describe brevemente el problema'; ?>" required value="<?php echo html($_POST['subject'] ?? ''); ?>">
                     <input type="hidden" name="source" value="web">
                 </div>
-                <div class="col-md-4">
-                    <label class="form-label">Tema:</label>
-                    <select name="topic_id" class="form-select" id="open_topic_id">
-                        <option value="0" <?php echo $selected_topic_id === 0 ? 'selected' : ''; ?>>— General —</option>
-                        <?php if ($open_hasTopics && !empty($open_topics)): ?>
-                            <?php foreach ($open_topics as $tp): ?>
-                                <option value="<?php echo (int)$tp['id']; ?>" data-dept-id="<?php echo (int)($tp['dept_id'] ?? 0); ?>" <?php echo (int)$tp['id'] === $selected_topic_id ? 'selected' : ''; ?>><?php echo html($tp['name']); ?></option>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                <div class="col-md-6">
+                    <label class="form-label">Departamento: <span class="required">*</span></label>
+                    <select name="dept_id" class="form-select" id="open_dept_id" required>
+                        <?php foreach ($open_departments as $d): ?>
+                            <option value="<?php echo (int)$d['id']; ?>" <?php echo (int)$d['id'] === $selected_dept_id ? 'selected' : ''; ?>><?php echo html($d['name']); ?></option>
+                        <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <label class="form-label">Prioridad:</label>
                     <select name="priority_id" class="form-select">
                         <?php foreach ($open_priorities as $p): ?>
                             <option value="<?php echo (int)$p['id']; ?>" <?php echo (int)$p['id'] === 2 ? 'selected' : ''; ?>><?php echo html($p['name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Asignar a:</label>
-                    <select name="staff_id" class="form-select" id="open_staff_id" <?php echo $selected_dept_id > 0 ? '' : 'disabled'; ?>>
-                        <option value="0">— Sin asignar —</option>
-                        <?php foreach ($open_staff as $s): ?>
-                            <option value="<?php echo (int)$s['id']; ?>" data-dept-id="<?php echo (int)($s['dept_id'] ?? 0); ?>" <?php echo (int)$s['id'] === $selected_staff_id ? 'selected' : ''; ?>><?php echo html(trim($s['firstname'] . ' ' . $s['lastname'])); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -476,7 +468,8 @@ body.dark-mode .text-muted {
     var deptSel = document.getElementById('open_dept_id');
     var staffSel = document.getElementById('open_staff_id');
     var topicSel = document.getElementById('open_topic_id');
-    if (!deptSel || !staffSel) return;
+
+    if (deptSel && staffSel) {
 
     var syncDeptFromTopic = function () {
       if (!topicSel) return;
@@ -530,6 +523,7 @@ body.dark-mode .text-muted {
 
     syncDeptFromTopic();
     applyStaffFilter();
+    }
 
     // Prevención de doble envío
     var form = document.getElementById('form-open-ticket');
@@ -642,14 +636,22 @@ body.dark-mode .text-muted {
         body.dark-mode #modalUserSearch .list-group-item:hover { background: #000000; }
         body.dark-mode #modalUserSearch .form-control { background: #000; border-color: #333; color: #fff; }
         body.dark-mode #modalUserSearch .input-group-text { background: #0a0a0a !important; border-color: #333; color: #94a3b8; }
+        @media (min-width: 992px) {
+            #modalUserSearch {
+                padding-left: 280px !important;
+            }
+            body.sidebar-collapsed #modalUserSearch {
+                padding-left: 84px !important;
+            }
+        }
       </style>
       <div class="modal-header" style="border-bottom: 1px solid #f1f5f9;">
-        <h5 class="modal-title" id="modalUserSearchLabel" style="font-weight: 700; color: #0f172a;"><i class="bi bi-search me-2 text-danger"></i>Buscar usuario</h5>
+        <h5 class="modal-title" id="modalUserSearchLabel" style="font-weight: 700; color: #0f172a;"><i class="bi bi-search me-2 text-danger"></i>Buscar cliente</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <div class="alert alert-info py-2 mb-3" style="border-radius: 10px; font-size: 0.9rem;">
-            <i class="bi bi-info-circle me-1"></i> Busca usuarios por email, teléfono o nombre.
+        <div class="alert alert-info py-2 mb-3 text-center" style="border-radius: 10px; font-size: 0.9rem;">
+            <i class="bi bi-info-circle me-1"></i> Busca clientes por email, teléfono, nombre o empresa.
         </div>
 
         <form method="get" action="tickets.php" class="mb-3" id="openUserSearchForm" onsubmit="event.preventDefault();">
@@ -663,7 +665,7 @@ body.dark-mode .text-muted {
         <div id="user_search_results_container">
             <!-- Los resultados se cargarán aquí dinámicamente -->
             <?php if ($open_user_query !== '' && empty($open_user_results)): ?>
-            <div class="text-muted text-center py-3"><i class="bi bi-inbox" style="font-size: 1.5rem; opacity: 0.5;"></i><br>No se encontraron usuarios.</div>
+            <div class="text-muted text-center py-3"><i class="bi bi-inbox" style="font-size: 1.5rem; opacity: 0.5;"></i><br>No se encontraron clientes.</div>
             <?php endif; ?>
 
             <?php if (!empty($open_user_results)): ?>
@@ -723,7 +725,7 @@ body.dark-mode .text-muted {
                     .then(r => r.json())
                     .then(data => {
                         if (!data.ok || !data.items || data.items.length === 0) {
-                            container.innerHTML = '<div class="text-muted text-center py-4"><i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i><br><div class="mt-2" style="font-weight: 500;">No se encontraron usuarios que coincidan con "'+q.replace(/</g, "&lt;").replace(/>/g, "&gt;")+'".</div></div>';
+                            container.innerHTML = '<div class="text-muted text-center py-4"><i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i><br><div class="mt-2" style="font-weight: 500;">No se encontraron clientes que coincidan con "'+q.replace(/</g, "&lt;").replace(/>/g, "&gt;")+'".</div></div>';
                             return;
                         }
 
@@ -747,7 +749,7 @@ body.dark-mode .text-muted {
                         container.innerHTML = html;
                     })
                     .catch(err => {
-                        container.innerHTML = '<div class="text-danger text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Error al buscar usuarios.</div>';
+                        container.innerHTML = '<div class="text-danger text-center py-3"><i class="bi bi-exclamation-triangle-fill me-1"></i> Error al buscar clientes.</div>';
                     });
                 }, 400); // 400ms debounce
             });
@@ -760,3 +762,106 @@ body.dark-mode .text-muted {
     </div>
   </div>
 </div>
+
+<!-- Modal: Quick Create Client -->
+<div class="modal fade" id="modalQuickCreateClient" tabindex="-1" aria-labelledby="modalQuickCreateClientLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border: none; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+      <div class="modal-header" style="border-bottom: 1px solid #f1f5f9; padding: 20px 24px;">
+        <h5 class="modal-title" id="modalQuickCreateClientLabel" style="font-weight: 700; font-size: 1.15rem;"><i class="bi bi-person-plus-fill text-danger me-2"></i>Crear Cliente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <form id="formQuickCreateClient" onsubmit="event.preventDefault(); submitQuickCreateClient();">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label" style="font-weight: 600; font-size: 0.9rem;">Nombre Completo <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="qc_name" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" style="font-weight: 600; font-size: 0.9rem;">Empresa / Organización</label>
+              <input type="text" class="form-control" id="qc_company" placeholder="Nombre (Opcional)">
+              <div class="form-text" style="font-size: 0.8rem;">Se vinculará automáticamente.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" style="font-weight: 600; font-size: 0.9rem;">Teléfono</label>
+              <input type="text" class="form-control" id="qc_phone" placeholder="Teléfono (Opcional)">
+            </div>
+            <div class="col-12">
+              <label class="form-label" style="font-weight: 600; font-size: 0.9rem;">Dirección</label>
+              <input type="text" class="form-control" id="qc_address" placeholder="Dirección completa (Opcional)">
+            </div>
+          </div>
+          <div id="qc_error_msg" class="alert alert-danger mt-3 mb-0" style="display: none; padding: 10px; font-size: 0.85rem;"></div>
+        </form>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid #f1f5f9; padding: 16px 24px;">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px;">Cancelar</button>
+        <button type="button" class="btn btn-danger fw-bold px-4" id="btnQuickCreateSubmit" onclick="submitQuickCreateClient()" style="border-radius: 10px;">Crear y Seleccionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function submitQuickCreateClient() {
+    const btn = document.getElementById('btnQuickCreateSubmit');
+    const errorMsg = document.getElementById('qc_error_msg');
+    
+    const fullName = document.getElementById('qc_name').value.trim();
+    const company = document.getElementById('qc_company').value.trim();
+    const phone = document.getElementById('qc_phone').value.trim();
+    const address = document.getElementById('qc_address').value.trim();
+    
+    if (!fullName) {
+        errorMsg.textContent = 'El nombre es obligatorio.';
+        errorMsg.style.display = 'block';
+        return;
+    }
+    
+    // Split full name into firstname and lastname
+    const nameParts = fullName.split(' ');
+    const firstname = nameParts[0];
+    const lastname = nameParts.slice(1).join(' ') || '-';
+    
+    errorMsg.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Creando...';
+    
+    fetch('tickets.php?action=quick_create_client', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+            firstname: firstname,
+            lastname: lastname,
+            company: company,
+            phone: phone,
+            address: address
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok && data.user) {
+            // User created successfully, select it automatically
+            const url = new URL(window.location.href);
+            url.searchParams.set('a', 'open');
+            url.searchParams.set('uid', data.user.id);
+            window.location.href = url.toString();
+        } else {
+            errorMsg.textContent = data.error || 'Ocurrió un error al crear el cliente.';
+            errorMsg.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = 'Crear y Seleccionar';
+        }
+    })
+    .catch(err => {
+        errorMsg.textContent = 'Error de conexión con el servidor.';
+        errorMsg.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = 'Crear y Seleccionar';
+    });
+}
+</script>

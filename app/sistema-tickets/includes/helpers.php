@@ -996,9 +996,9 @@ function getThreadEntryReadStatusMap($mysqli, array $entryIds, int $empresaId): 
 function threadEntryReadReceiptHtml(bool $isRead, bool $iconFirst = true): string
 {
     $icon = $isRead
-        ? '<i class="bi bi-check2-all" style="color:#34b7f1;font-weight:bold;" title="Leído"></i>'
-        : '<i class="bi bi-check2-all" style="color:#9ca3af;" title="Enviado"></i>';
-    $label = 'Enviado';
+        ? '<i class="bi bi-check-all text-primary" style="font-size: 1.1rem; font-weight:bold;" title="Leído"></i>'
+        : '<i class="bi bi-check-all text-secondary" style="font-size: 1.1rem;" title="Enviado"></i>';
+    $label = $isRead ? 'Leído' : 'Enviado';
     if ($iconFirst) {
         return $icon . ' ' . $label;
     }
@@ -2437,6 +2437,81 @@ function getCompanyLogoUrl($fallbackRelativePath = '')
     return $finalUrl;
 }
 
+/**
+ * Genera meta tags optimizados para Open Graph (WhatsApp, Facebook, Twitter/X) y SEO.
+ */
+function renderOpenGraphTags(array $options = []): string
+{
+    $appName = defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets';
+    $title = trim((string)($options['title'] ?? ''));
+    if ($title === '') {
+        $title = $appName;
+    } elseif (!str_contains($title, $appName)) {
+        $title = $title . ' — ' . $appName;
+    }
+
+    $description = trim((string)($options['description'] ?? ''));
+    if ($description === '') {
+        $description = 'Portal de soporte técnico, gestión de tickets y atención de incidencias en línea.';
+    }
+    if (function_exists('mb_strlen') && mb_strlen($description) > 200) {
+        $description = mb_substr($description, 0, 197) . '...';
+    } elseif (strlen($description) > 200) {
+        $description = substr($description, 0, 197) . '...';
+    }
+
+    $siteName = trim((string)($options['site_name'] ?? $appName));
+    $type     = trim((string)($options['type'] ?? 'website'));
+
+    // URL de imagen (WhatsApp requiere URL absoluta http/https y tamaño adecuado)
+    $image = trim((string)($options['image'] ?? ''));
+    if ($image === '') {
+        $image = 'publico/img/og-preview.png';
+    }
+    $imageUrl = toAppAbsoluteUrl($image);
+
+    // URL canónica actual
+    $currentUrl = trim((string)($options['url'] ?? ''));
+    if ($currentUrl === '') {
+        $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || ((string)($_SERVER['SERVER_PORT'] ?? '') === '443')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $scheme = $isSecure ? 'https' : 'http';
+        $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
+        $currentUrl = $scheme . '://' . $host . $uri;
+    }
+
+    $escTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    $escDesc  = htmlspecialchars($description, ENT_QUOTES, 'UTF-8');
+    $escSite  = htmlspecialchars($siteName, ENT_QUOTES, 'UTF-8');
+    $escType  = htmlspecialchars($type, ENT_QUOTES, 'UTF-8');
+    $escUrl   = htmlspecialchars($currentUrl, ENT_QUOTES, 'UTF-8');
+    $escImg   = htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8');
+
+    $html  = "\n";
+    $html .= '    <!-- Open Graph / WhatsApp / Facebook -->' . "\n";
+    $html .= '    <meta name="description" content="' . $escDesc . '">' . "\n";
+    $html .= '    <meta property="og:type" content="' . $escType . '">' . "\n";
+    $html .= '    <meta property="og:site_name" content="' . $escSite . '">' . "\n";
+    $html .= '    <meta property="og:title" content="' . $escTitle . '">' . "\n";
+    $html .= '    <meta property="og:description" content="' . $escDesc . '">' . "\n";
+    $html .= '    <meta property="og:url" content="' . $escUrl . '">' . "\n";
+    $html .= '    <meta property="og:image" content="' . $escImg . '">' . "\n";
+    $html .= '    <meta property="og:image:secure_url" content="' . $escImg . '">' . "\n";
+    $html .= '    <meta property="og:image:type" content="image/png">' . "\n";
+    $html .= '    <meta property="og:image:width" content="1200">' . "\n";
+    $html .= '    <meta property="og:image:height" content="630">' . "\n";
+    $html .= '    <meta property="og:image:alt" content="' . $escTitle . '">' . "\n";
+    $html .= '    <!-- Twitter Card -->' . "\n";
+    $html .= '    <meta name="twitter:card" content="summary_large_image">' . "\n";
+    $html .= '    <meta name="twitter:title" content="' . $escTitle . '">' . "\n";
+    $html .= '    <meta name="twitter:description" content="' . $escDesc . '">' . "\n";
+    $html .= '    <meta name="twitter:image" content="' . $escImg . '">' . "\n";
+
+    return $html;
+}
+
 function addLog($action, $details = null, $object_type = null, $object_id = null, $user_type = null, $user_id = null)
 {
     global $mysqli;
@@ -2801,7 +2876,7 @@ function triggerEmailQueueWorkerAsync($limit = 30)
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SistemaTickets/1.0');
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0' . ' (Windows NT 10.0; Win64; x64) ' . 'SistemaTickets/1.0');
         @curl_exec($ch);
         // curl_close() está obsoleto en PHP 8.0+ ya que $ch es un objeto que se destruye automáticamente
         unset($ch);
@@ -2846,6 +2921,21 @@ function ensureRolePermissionsTable()
     global $mysqli;
     if (!isset($mysqli) || !$mysqli)
         return false;
+
+    // La estructura de la tabla es estable: validar 1 sola vez por request y
+    // cachear el resultado en sesión (24h). Evita ejecutar CREATE TABLE IF NOT
+    // EXISTS + SHOW INDEX en cada llamada (causa principal de lentitud del sidebar).
+    static $checked = false;
+    if ($checked)
+        return true;
+
+    $tsKey = 'role_perm_schema_checked_ts';
+    $lastTs = (int) ($_SESSION[$tsKey] ?? 0);
+    if ($lastTs > 0 && (time() - $lastTs) < 86400) {
+        $checked = true;
+        return true;
+    }
+
     $sql = "CREATE TABLE IF NOT EXISTS role_permissions (\n"
         . "  id INT PRIMARY KEY AUTO_INCREMENT,\n"
         . "  empresa_id INT NOT NULL DEFAULT 1,\n"
@@ -2878,6 +2968,11 @@ function ensureRolePermissionsTable()
             $mysqli->query("ALTER TABLE role_permissions ADD UNIQUE KEY uq_role_perm_empresa_role_perm (empresa_id, role_name, perm_key)");
         }
     } catch (Throwable $e) {
+    }
+
+    if ($ok) {
+        $checked = true;
+        $_SESSION[$tsKey] = time();
     }
 
     return $ok;
@@ -2917,13 +3012,22 @@ function roleHasPermission($permKey)
     if ($permKey === '')
         return false;
 
+    // Caché por request: el sidebar hace ~10+ llamadas por página
+    static $resultCache = [];
+    if (array_key_exists($permKey, $resultCache)) {
+        return $resultCache[$permKey];
+    }
+
     $role = getCurrentStaffRoleName();
-    if ($role === '')
+    if ($role === '') {
+        $resultCache[$permKey] = false;
         return false;
+    }
 
     // Protected fallback: admin and administrator roles always have access to admin.access to prevent accidental lockout
     // This is a safety mechanism to ensure the admin panel remains accessible
     if (($role === 'admin' || $role === 'administrator') && $permKey === 'admin.access') {
+        $resultCache[$permKey] = true;
         return true;
     }
 
@@ -2934,13 +3038,16 @@ function roleHasPermission($permKey)
         $adminPrefixes = ['admin.', 'user.', 'task.', 'org.', 'email.', 'helptopic.', 'banlist.', 'department.', 'role.', 'staff.', 'notification.', 'log.', 'billing.', 'sequence.', 'setting.'];
         foreach ($adminPrefixes as $prefix) {
             if (strpos($permKey, $prefix) === 0) {
+                $resultCache[$permKey] = true;
                 return true;
             }
         }
     }
 
-    if (!isset($mysqli) || !$mysqli)
+    if (!isset($mysqli) || !$mysqli) {
+        $resultCache[$permKey] = false;
         return false;
+    }
     ensureRolePermissionsTable();
 
     $eid = empresaId();
@@ -2954,8 +3061,10 @@ function roleHasPermission($permKey)
     $stmt = $hasEmpresa
         ? $mysqli->prepare('SELECT 1 FROM role_permissions WHERE empresa_id = ? AND role_name = ? AND perm_key = ? AND is_enabled = 1 LIMIT 1')
         : $mysqli->prepare('SELECT 1 FROM role_permissions WHERE role_name = ? AND perm_key = ? AND is_enabled = 1 LIMIT 1');
-    if (!$stmt)
+    if (!$stmt) {
+        $resultCache[$permKey] = false;
         return false;
+    }
 
     if ($hasEmpresa) {
         $stmt->bind_param('iss', $eid, $role, $permKey);
@@ -2964,7 +3073,8 @@ function roleHasPermission($permKey)
     }
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
-    return (bool) $row;
+    $resultCache[$permKey] = (bool) $row;
+    return $resultCache[$permKey];
 }
 
 function roleHasPermissionDirect($permKey)
@@ -2974,12 +3084,22 @@ function roleHasPermissionDirect($permKey)
     if ($permKey === '')
         return false;
 
-    $role = getCurrentStaffRoleName();
-    if ($role === '')
-        return false;
+    // Caché por request
+    static $resultCache = [];
+    if (array_key_exists($permKey, $resultCache)) {
+        return $resultCache[$permKey];
+    }
 
-    if (!isset($mysqli) || !$mysqli)
+    $role = getCurrentStaffRoleName();
+    if ($role === '') {
+        $resultCache[$permKey] = false;
         return false;
+    }
+
+    if (!isset($mysqli) || !$mysqli) {
+        $resultCache[$permKey] = false;
+        return false;
+    }
     ensureRolePermissionsTable();
 
     $eid = empresaId();
@@ -2993,8 +3113,10 @@ function roleHasPermissionDirect($permKey)
     $stmt = $hasEmpresa
         ? $mysqli->prepare('SELECT 1 FROM role_permissions WHERE empresa_id = ? AND role_name = ? AND perm_key = ? AND is_enabled = 1 LIMIT 1')
         : $mysqli->prepare('SELECT 1 FROM role_permissions WHERE role_name = ? AND perm_key = ? AND is_enabled = 1 LIMIT 1');
-    if (!$stmt)
+    if (!$stmt) {
+        $resultCache[$permKey] = false;
         return false;
+    }
 
     if ($hasEmpresa) {
         $stmt->bind_param('iss', $eid, $role, $permKey);
@@ -3003,7 +3125,8 @@ function roleHasPermissionDirect($permKey)
     }
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
-    return (bool) $row;
+    $resultCache[$permKey] = (bool) $row;
+    return $resultCache[$permKey];
 }
 
 function roleHasAnyPermissionPrefix($prefix)
@@ -3013,12 +3136,22 @@ function roleHasAnyPermissionPrefix($prefix)
     if ($prefix === '')
         return false;
 
-    $role = getCurrentStaffRoleName();
-    if ($role === '')
-        return false;
+    // Caché por request
+    static $resultCache = [];
+    if (array_key_exists($prefix, $resultCache)) {
+        return $resultCache[$prefix];
+    }
 
-    if (!isset($mysqli) || !$mysqli)
+    $role = getCurrentStaffRoleName();
+    if ($role === '') {
+        $resultCache[$prefix] = false;
         return false;
+    }
+
+    if (!isset($mysqli) || !$mysqli) {
+        $resultCache[$prefix] = false;
+        return false;
+    }
     ensureRolePermissionsTable();
 
     $like = $prefix . '%';
@@ -3034,8 +3167,10 @@ function roleHasAnyPermissionPrefix($prefix)
     $stmt = $hasEmpresa
         ? $mysqli->prepare('SELECT 1 FROM role_permissions WHERE empresa_id = ? AND role_name = ? AND perm_key LIKE ? AND is_enabled = 1 LIMIT 1')
         : $mysqli->prepare('SELECT 1 FROM role_permissions WHERE role_name = ? AND perm_key LIKE ? AND is_enabled = 1 LIMIT 1');
-    if (!$stmt)
+    if (!$stmt) {
+        $resultCache[$prefix] = false;
         return false;
+    }
 
     if ($hasEmpresa) {
         $stmt->bind_param('iss', $eid, $role, $like);
@@ -3044,7 +3179,8 @@ function roleHasAnyPermissionPrefix($prefix)
     }
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
-    return (bool) $row;
+    $resultCache[$prefix] = (bool) $row;
+    return $resultCache[$prefix];
 }
 
 function requireRolePermission($permKey, $redirectUrl = null)
@@ -3053,31 +3189,39 @@ function requireRolePermission($permKey, $redirectUrl = null)
     if ($ok)
         return true;
 
-    $_SESSION['flash_error'] = 'No tienes permiso para hacer esta acción.';
     addLog('permission_denied', (string) $permKey, null, null, 'staff', (int) ($_SESSION['staff_id'] ?? 0));
 
+    // Si hay redirect explícito, hacer flash + redirect (comportamiento legacy)
     if ($redirectUrl) {
+        $_SESSION['flash_error'] = 'No tienes permiso para hacer esta acción.';
         header('Location: ' . $redirectUrl);
         exit;
     }
 
-    $fallback = toAppAbsoluteUrl('upload/scp/index.php');
-    $ref = (string) ($_SERVER['HTTP_REFERER'] ?? '');
-    if ($ref !== '') {
-        $refHost = (string) parse_url($ref, PHP_URL_HOST);
-        $curHost = (string) ($_SERVER['HTTP_HOST'] ?? '');
-        if ($refHost === '' || $refHost === $curHost) {
-            $refPath = (string) parse_url($ref, PHP_URL_PATH);
-            if ($refPath !== '' && strpos($refPath, '/upload/scp/') !== false) {
-                $fallback = $ref;
-            }
-        }
-    }
+    // Sin redirect: mostrar página 403 personalizada
+    $errorCode = class_exists('ErrorHandler') ? ErrorHandler::generateErrorCode() : ('ERR-' . date('Ymd') . '-000000');
 
-    http_response_code(403);
-    header('Location: ' . $fallback);
-    exit;
+    if (class_exists('ErrorHandler')) {
+        ErrorHandler::logError($errorCode, [
+            'type'    => 'HTTP403',
+            'errno'   => 403,
+            'message' => 'Permiso denegado: ' . $permKey,
+            'file'    => $_SERVER['SCRIPT_NAME'] ?? '',
+            'line'    => 0,
+        ]);
+        ErrorHandler::renderErrorPage(403, $errorCode);
+    } else {
+        http_response_code(403);
+        $pageFile = dirname(__DIR__) . '/includes/error_pages/403.php';
+        if (file_exists($pageFile)) {
+            require $pageFile;
+        } else {
+            echo '<h1>403 Acceso Denegado</h1>';
+        }
+        exit;
+    }
 }
+
 
 function getPostMaxSize()
 {

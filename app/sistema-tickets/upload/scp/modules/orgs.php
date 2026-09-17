@@ -1305,12 +1305,12 @@ if (!empty($_GET['org'])) {
                                         ?>
                                         <tr class="uvt-row">
                                             <td data-label="Nº Ticket">
-                                                <a href="<?php echo html($ticketsBaseUrl); ?>?id=<?php echo (int)$tkt['id']; ?>&back=<?php echo urlencode($backToOrgTickets); ?>" class="uvt-ticket-number">
+                                                <a href="<?php echo html($ticketsBaseUrl); ?>?id=<?php echo (int)$tkt['id']; ?>" class="uvt-ticket-number">
                                                     #<?php echo html($tkt['ticket_number']); ?>
                                                 </a>
                                             </td>
                                             <td class="uvt-cell-subject" data-label="Asunto">
-                                                <a href="<?php echo html($ticketsBaseUrl); ?>?id=<?php echo (int)$tkt['id']; ?>&back=<?php echo urlencode($backToOrgTickets); ?>" class="uvt-subject-link">
+                                                <a href="<?php echo html($ticketsBaseUrl); ?>?id=<?php echo (int)$tkt['id']; ?>" class="uvt-subject-link">
                                                     <?php echo html($tkt['subject']); ?>
                                                 </a>
                                                 <?php if (!empty($tkt['priority_name'])): ?>
@@ -1433,7 +1433,7 @@ if (!empty($_GET['org'])) {
 // Mostrar solo de tabla organizations
 $search = trim($_GET['q'] ?? '');
 $pageNum = max(1, (int)($_GET['p'] ?? 1));
-$perPage = 20;
+$perPage = 10;
 
 $orgsBaseUrl = (string)toAppAbsoluteUrl('upload/scp/orgs.php');
 

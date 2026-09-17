@@ -39,6 +39,7 @@ $routes = [
     'mapa'      => 'mapa-view.inc.php',   // Mapa de agentes en tiempo real
     'credits'   => 'credits.php',     // Créditos y autoría
     'cotizaciones' => 'cotizaciones.php', // Cotizaciones
+    'requisitions' => 'requisitions.php', // Requisiciones e Inventario
 ];
 
 // Página por defecto
@@ -73,6 +74,9 @@ if (file_exists($moduleFile)) {
     echo '<div class="alert alert-danger">Módulo no encontrado.</div>';
 }
 $content = ob_get_clean();
+
+// Navegación AJAX (SPA): devuelve solo el contenido y assets de la ruta
+require __DIR__ . '/partials/ajax-response.inc.php';
 
 // Renderizar layout principal (header + sidebar + shell)
 require __DIR__ . '/layout/layout.php';

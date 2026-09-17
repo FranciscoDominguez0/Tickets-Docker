@@ -6,7 +6,7 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
     $open_errors = [];
     $preSelectedUser = null;
 
-    $walkinDefaultUserId = (int)getAppSetting('tickets.walkin_default_user_id', '0');
+    $walkinDefaultUserId = (int) getAppSetting('tickets.walkin_default_user_id', '0');
     $walkinDefaultUser = null;
 
     if (!roleHasPermission('ticket.create')) {
@@ -30,6 +30,70 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
             $stmt->execute();
             $res = $stmt->get_result();
             $preSelectedUser = $res ? $res->fetch_assoc() : null;
+            if (!$preSelectedUser) {
+                $open_uid = 0;
+                $open_errors[] = 'El cliente solicitado no existe o no pertenece a esta empresa.';
+            }
+        }
+    }
+
+    $open_departments = [];
+    $my_staff_id = (int)($_SESSION['staff_id'] ?? 0);
+    if ($my_staff_id > 0) {
+        $hasStaffDept = dbTableExists('staff_departments');
+        if ($hasStaffDept) {
+            $stmtMyDept = $mysqli->prepare("
+                SELECT DISTINCT d.id, d.name 
+                FROM departments d 
+                JOIN staff_departments sd ON sd.dept_id = d.id 
+                WHERE sd.staff_id = ? AND d.empresa_id = ? AND d.is_active = 1 
+                ORDER BY d.name
+            ");
+            if ($stmtMyDept) {
+                $stmtMyDept->bind_param('ii', $my_staff_id, $eid);
+                if ($stmtMyDept->execute()) {
+                    $r = $stmtMyDept->get_result();
+                    while ($r && ($row = $r->fetch_assoc())) {
+                        $open_departments[] = $row;
+                    }
+                }
+            }
+        }
+        
+        $main_dept_id = (int)($staff['dept_id'] ?? 0);
+        if ($main_dept_id > 0) {
+            $found = false;
+            foreach ($open_departments as $md) {
+                if ((int)$md['id'] === $main_dept_id) {
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $stmtMainDept = $mysqli->prepare("SELECT id, name FROM departments WHERE id = ? AND empresa_id = ? AND is_active = 1 LIMIT 1");
+                if ($stmtMainDept) {
+                    $stmtMainDept->bind_param('ii', $main_dept_id, $eid);
+                    if ($stmtMainDept->execute()) {
+                        $mdRow = $stmtMainDept->get_result()->fetch_assoc();
+                        if ($mdRow) {
+                            $open_departments[] = $mdRow;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (empty($open_departments)) {
+        $stmtOpenDept = $mysqli->prepare("SELECT id, name FROM departments WHERE empresa_id = ? AND is_active = 1 ORDER BY name");
+        if ($stmtOpenDept) {
+            $stmtOpenDept->bind_param('i', $eid);
+            if ($stmtOpenDept->execute()) {
+                $r = $stmtOpenDept->get_result();
+                while ($r && ($row = $r->fetch_assoc())) {
+                    $open_departments[] = $row;
+                }
+            }
         }
     }
 
@@ -49,12 +113,11 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
             $body = trim($_POST['body'] ?? '');
             $dept_id = isset($_POST['dept_id']) && is_numeric($_POST['dept_id']) ? (int) $_POST['dept_id'] : 0;
             $priority_id = isset($_POST['priority_id']) && is_numeric($_POST['priority_id']) ? (int) $_POST['priority_id'] : 2;
-            $staff_id = isset($_POST['staff_id']) && is_numeric($_POST['staff_id']) ? (int) $_POST['staff_id'] : null;
-            if ($staff_id === 0) $staff_id = null;
-            $topic_id = isset($_POST['topic_id']) && is_numeric($_POST['topic_id']) ? (int) $_POST['topic_id'] : 0;
+            $staff_id = null;
+            $topic_id = 0;
 
-            $walkin_phone = trim((string)($_POST['walkin_phone'] ?? ''));
-            $walkin_address = trim((string)($_POST['walkin_address'] ?? ''));
+            $walkin_phone = trim((string) ($_POST['walkin_phone'] ?? ''));
+            $walkin_address = trim((string) ($_POST['walkin_address'] ?? ''));
             if (function_exists('cleanPlainText')) {
                 $walkin_phone = cleanPlainText($walkin_phone);
                 $walkin_address = cleanPlainText($walkin_address);
@@ -62,14 +125,26 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
 
             $isWalkin = ($walkinDefaultUserId > 0 && $user_id === $walkinDefaultUserId);
 
-            $blockNewIfSignaturePending = ((string)getAppSetting('tickets.block_new_if_signature_pending', '0') === '1');
+            $blockNewIfSignaturePending = ((string) getAppSetting('tickets.block_new_if_signature_pending', '0') === '1');
             if ($blockNewIfSignaturePending && $user_id > 0) {
                 $hasSigReqCol = false;
                 $hasClientSigCol = false;
                 $hasSigTokenCol = false;
-                try { $hasSigReqCol = dbColumnExists('tickets', 'signature_requested'); } catch (Throwable $e) { $hasSigReqCol = false; }
-                try { $hasClientSigCol = dbColumnExists('tickets', 'client_signature'); } catch (Throwable $e) { $hasClientSigCol = false; }
-                try { $hasSigTokenCol = dbColumnExists('tickets', 'signature_token'); } catch (Throwable $e) { $hasSigTokenCol = false; }
+                try {
+                    $hasSigReqCol = dbColumnExists('tickets', 'signature_requested');
+                } catch (Throwable $e) {
+                    $hasSigReqCol = false;
+                }
+                try {
+                    $hasClientSigCol = dbColumnExists('tickets', 'client_signature');
+                } catch (Throwable $e) {
+                    $hasClientSigCol = false;
+                }
+                try {
+                    $hasSigTokenCol = dbColumnExists('tickets', 'signature_token');
+                } catch (Throwable $e) {
+                    $hasSigTokenCol = false;
+                }
 
                 if ($hasSigReqCol) {
                     $extra = '';
@@ -86,9 +161,9 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                         $stmtPend->bind_param('ii', $eid, $user_id);
                         if ($stmtPend->execute()) {
                             $rowPend = $stmtPend->get_result()->fetch_assoc();
-                            $pendCount = (int)($rowPend['cnt'] ?? 0);
+                            $pendCount = (int) ($rowPend['cnt'] ?? 0);
                             if ($pendCount > 0) {
-                                $open_errors[] = 'Este usuario tiene firmas pendientes.';
+                                $open_errors[] = 'Este cliente tiene firmas pendientes.';
                             }
                         }
                     }
@@ -105,23 +180,39 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                     if ($stmtCntTopics->execute()) {
                         $rc = $stmtCntTopics->get_result();
                         if ($rc && ($rr = $rc->fetch_assoc())) {
-                            $open_topicsCount = (int)($rr['c'] ?? 0);
+                            $open_topicsCount = (int) ($rr['c'] ?? 0);
                         }
                     }
                 }
             }
 
-            if ($user_id <= 0) $open_errors[] = 'Seleccione un usuario.';
-            if ($subject === '') $open_errors[] = 'El asunto es obligatorio.';
-            if ($open_hasTopics && $open_topicsCount > 0 && $topic_id <= 0) $open_errors[] = 'Seleccione un tema.';
-            if ($dept_id <= 0) $open_errors[] = 'No se pudo determinar el departamento del ticket.';
+            if ($user_id > 0) {
+                $stmtUserCheck = $mysqli->prepare("SELECT id FROM users WHERE id = ? AND empresa_id = ? LIMIT 1");
+                if ($stmtUserCheck) {
+                    $stmtUserCheck->bind_param('ii', $user_id, $eid);
+                    $stmtUserCheck->execute();
+                    $resUserCheck = $stmtUserCheck->get_result();
+                    if (!$resUserCheck || $resUserCheck->num_rows === 0) {
+                        $open_errors[] = 'El cliente seleccionado no existe o no pertenece a esta empresa.';
+                    }
+                }
+            } else {
+                $open_errors[] = 'Seleccione un cliente.';
+            }
+            if ($subject === '')
+                $open_errors[] = 'El asunto es obligatorio.';
+            // Se eliminó la validación del tema (topic_id)
+            if ($dept_id <= 0)
+                $open_errors[] = 'No se pudo determinar el departamento del ticket.';
 
             if ($isWalkin) {
-                if ($walkin_phone === '') $open_errors[] = 'El teléfono del cliente es obligatorio.';
-                if ($walkin_address === '') $open_errors[] = 'La dirección del cliente es obligatoria.';
+                if ($walkin_phone === '')
+                    $open_errors[] = 'El teléfono del cliente es obligatorio.';
+                if ($walkin_address === '')
+                    $open_errors[] = 'La dirección del cliente es obligatoria.';
             }
 
-            $maxOpenTicketsSetting = (int)getAppSetting('tickets.max_open_tickets', '0');
+            $maxOpenTicketsSetting = (int) getAppSetting('tickets.max_open_tickets', '0');
             if ($maxOpenTicketsSetting > 0 && $user_id > 0) {
                 $hasClosedCol = dbColumnExists('tickets', 'closed');
 
@@ -134,16 +225,16 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                     $stmtCnt->bind_param('ii', $eid, $user_id);
                     $stmtCnt->execute();
                     $cntRow = $stmtCnt->get_result()->fetch_assoc();
-                    $openCount = (int)($cntRow['cnt'] ?? 0);
+                    $openCount = (int) ($cntRow['cnt'] ?? 0);
                     if ($openCount >= $maxOpenTicketsSetting) {
-                        $open_errors[] = 'Este usuario alcanzó el máximo de tickets abiertos.';
+                        $open_errors[] = 'Este cliente alcanzó el máximo de tickets abiertos.';
                     }
                 }
             }
 
             // Validar asignación inicial por departamento (regla exacta)
             if ($dept_id > 0 && $staff_id !== null) {
-                $allowed = $staffBelongsToDept((int)$staff_id, (int)$dept_id, (int)$generalDeptId);
+                $allowed = $staffBelongsToDept((int) $staff_id, (int) $dept_id, (int) $generalDeptId);
                 if (!$allowed) {
                     $open_errors[] = 'El agente seleccionado no pertenece al departamento del ticket.';
                 }
@@ -151,8 +242,9 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
 
             if (empty($open_errors)) {
                 $generateTicketNumberFromFormat = function ($format) use ($mysqli, $eid) {
-                    $format = trim((string)$format);
-                    if ($format === '') $format = '######';
+                    $format = trim((string) $format);
+                    if ($format === '')
+                        $format = '######';
 
                     $build = function ($fmt) {
                         $out = '';
@@ -160,7 +252,7 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                         for ($i = 0; $i < $len; $i++) {
                             $ch = $fmt[$i];
                             if ($ch === '#') {
-                                $out .= (string)random_int(0, 9);
+                                $out .= (string) random_int(0, 9);
                             } else {
                                 $out .= $ch;
                             }
@@ -171,21 +263,25 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                     for ($i = 0; $i < 30; $i++) {
                         $num = $build($format);
                         $stmtChk = $mysqli->prepare('SELECT id FROM tickets WHERE empresa_id = ? AND ticket_number = ? LIMIT 1');
-                        if (!$stmtChk) return $num;
+                        if (!$stmtChk)
+                            return $num;
                         $stmtChk->bind_param('is', $eid, $num);
                         $stmtChk->execute();
                         $row = $stmtChk->get_result()->fetch_assoc();
-                        if (!$row) return $num;
+                        if (!$row)
+                            return $num;
                     }
 
                     return 'TKT-' . date('Ymd') . '-' . str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
                 };
 
                 $generateTicketNumberFromSequence = function ($sequenceId) use ($mysqli, $eid) {
-                    $sequenceId = (int)$sequenceId;
-                    if ($sequenceId <= 0) return null;
+                    $sequenceId = (int) $sequenceId;
+                    if ($sequenceId <= 0)
+                        return null;
 
-                    if (!dbTableExists('sequences')) return null;
+                    if (!dbTableExists('sequences'))
+                        return null;
 
                     // Intentar hasta 50 veces encontrar un número no duplicado
                     for ($attempt = 0; $attempt < 50; $attempt++) {
@@ -203,9 +299,9 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                             return null;
                         }
 
-                        $current = (int)($seqData['next'] ?? 1);
-                        $increment = (int)($seqData['increment'] ?? 1);
-                        $padding = (int)($seqData['padding'] ?? 0);
+                        $current = (int) ($seqData['next'] ?? 1);
+                        $increment = (int) ($seqData['increment'] ?? 1);
+                        $padding = (int) ($seqData['padding'] ?? 0);
                         $next = $current + $increment;
 
                         $stmtUpd = $mysqli->prepare('UPDATE sequences SET next = ?, updated = NOW() WHERE id = ?');
@@ -217,7 +313,7 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                         $stmtUpd->execute();
                         $mysqli->query('COMMIT');
 
-                        $num = ($padding > 0) ? str_pad((string)$current, $padding, '0', STR_PAD_LEFT) : (string)$current;
+                        $num = ($padding > 0) ? str_pad((string) $current, $padding, '0', STR_PAD_LEFT) : (string) $current;
 
                         // Verificar si ya existe un ticket con este número (evitar Duplicate Entry fatal)
                         $stmtChk = $mysqli->prepare('SELECT 1 FROM tickets WHERE ticket_number = ? LIMIT 1');
@@ -236,25 +332,25 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                     return null;
                 };
 
-                $ticketSequenceId = (string)getAppSetting('tickets.ticket_sequence_id', '0');
+                $ticketSequenceId = (string) getAppSetting('tickets.ticket_sequence_id', '0');
                 $ticket_number = null;
 
                 if ($ticketSequenceId !== '0') {
-                    $ticket_number = $generateTicketNumberFromSequence((int)$ticketSequenceId);
+                    $ticket_number = $generateTicketNumberFromSequence((int) $ticketSequenceId);
                 }
 
                 if ($ticket_number === null) {
-                    $ticketNumberFormat = (string)getAppSetting('tickets.ticket_number_format', '######');
+                    $ticketNumberFormat = (string) getAppSetting('tickets.ticket_number_format', '######');
                     $ticket_number = $generateTicketNumberFromFormat($ticketNumberFormat);
                 }
-                error_log('[tickets] INSERT tickets via scp/modules/tickets.php open uri=' . ($_SERVER['REQUEST_URI'] ?? '') . ' staff_session=' . (string)($_SESSION['staff_id'] ?? '') . ' user_id=' . (string)$user_id . ' dept_id=' . (string)$dept_id);
-                $hasTopicCol      = dbColumnExists('tickets', 'topic_id');
+                $hasTopicCol = dbColumnExists('tickets', 'topic_id');
                 $hasWalkinPhoneCol = dbColumnExists('tickets', 'walkin_phone');
                 $hasWalkinAddressCol = dbColumnExists('tickets', 'walkin_address');
-                $hasTopicsTable   = dbTableExists('help_topics');
+                $hasTopicsTable = dbTableExists('help_topics');
 
-                $defaultStatusId = (int)getAppSetting('tickets.default_ticket_status_id', '1');
-                if ($defaultStatusId <= 0) $defaultStatusId = 1;
+                $defaultStatusId = (int) getAppSetting('tickets.default_ticket_status_id', '1');
+                if ($defaultStatusId <= 0)
+                    $defaultStatusId = 1;
 
                 if ($isWalkin && (!$hasWalkinPhoneCol || !$hasWalkinAddressCol)) {
                     $open_errors[] = 'Faltan columnas para guardar teléfono/dirección del cliente no recurrente (walk-in). Ejecute el ALTER TABLE correspondiente.';
@@ -273,18 +369,18 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                     } else {
                         if ($isWalkin && $hasWalkinPhoneCol && $hasWalkinAddressCol) {
                             $stmt = $mysqli->prepare("INSERT INTO tickets (empresa_id, ticket_number, user_id, staff_id, dept_id, status_id, priority_id, subject, walkin_phone, walkin_address, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                            $stmt->bind_param('isiiiiiisss', $eid, $ticket_number, $user_id, $staff_id, $dept_id, $defaultStatusId, $priority_id, $subject, $walkin_phone, $walkin_address);
+                            $stmt->bind_param('isiiiiisss', $eid, $ticket_number, $user_id, $staff_id, $dept_id, $defaultStatusId, $priority_id, $subject, $walkin_phone, $walkin_address);
                         } else {
                             $stmt = $mysqli->prepare("INSERT INTO tickets (empresa_id, ticket_number, user_id, staff_id, dept_id, status_id, priority_id, subject, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                             // tipos: s (ticket_number), i (user_id), i (staff_id), i (dept_id), i (status_id), i (priority_id), s (subject)
-                            $stmt->bind_param('isiiiiiis', $eid, $ticket_number, $user_id, $staff_id, $dept_id, $defaultStatusId, $priority_id, $subject);
+                            $stmt->bind_param('isiiiiis', $eid, $ticket_number, $user_id, $staff_id, $dept_id, $defaultStatusId, $priority_id, $subject);
                         }
                     }
 
                     if ($stmt && $stmt->execute()) {
                         $new_tid = (int) $mysqli->insert_id;
                         $logDetails = 'Ticket creado - Número: ' . $ticket_number . ' - ' . $subject;
-                        addAuditLog('staff', (int)($_SESSION['staff_id'] ?? 0), 'ticket_created', 'ticket', $new_tid, $logDetails);
+                        addAuditLog('staff', (int) ($_SESSION['staff_id'] ?? 0), 'ticket_created', 'ticket', $new_tid, $logDetails);
                         // Notificación interna si el estado inicial es relevante
                         if ($defaultStatusId === 2 || $defaultStatusId === 3) {
                             $statusName = ($defaultStatusId === 2) ? 'En Camino' : 'En Proceso';
@@ -317,16 +413,17 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                         }
 
                         // Notificación + correo al agente asignado (si se creó con asignación o por departamento por defecto)
-                        if (($staff_id !== null && (int)$staff_id > 0) || ($forceNotifyDeptDefault ?? false)) {
+                        if (($staff_id !== null && (int) $staff_id > 0) || ($forceNotifyDeptDefault ?? false)) {
                             $val = (int) ($staff_id ?? 0);
-                            if ($forceNotifyDeptDefault && $val <= 0) $val = (int)($defaultStaffId ?? 0);
+                            if (($forceNotifyDeptDefault ?? false) && $val <= 0)
+                                $val = (int) ($defaultStaffId ?? 0);
                             if ($val <= 0) {
                                 // No se puede notificar, omitir
                             } else {
-                                addLog('ticket_assigned', 'Asignación inicial en creación de ticket' . ($forceNotifyDeptDefault ? ' (dept default)' : ''), 'ticket', $new_tid, 'staff', $val);
+                                addLog('ticket_assigned', 'Asignación inicial en creación de ticket' . (($forceNotifyDeptDefault ?? false) ? ' (dept default)' : ''), 'ticket', $new_tid, 'staff', $val);
 
                                 // Notificación en BD
-                                $message = 'Se te asignó el ticket ' . (string)$ticket_number . ': ' . (string)$subject;
+                                $message = 'Se te asignó el ticket ' . (string) $ticket_number . ': ' . (string) $subject;
                                 $type = 'ticket_assigned';
                                 $stmtN = $mysqli->prepare('INSERT INTO notifications (staff_id, message, type, related_id, is_read, created_at) VALUES (?, ?, ?, ?, 0, NOW())');
                                 if ($stmtN) {
@@ -343,33 +440,34 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                                     if ($stmtE->execute()) {
                                         $r = $stmtE->get_result()->fetch_assoc();
                                         if ($r && !empty($r['email'])) {
-                                            $emailEnabled = ((string)getAppSetting('staff.' . (int)$val . '.email_ticket_assigned', '1') === '1');
+                                            $emailEnabled = ((string) getAppSetting('staff.' . (int) $val . '.email_ticket_assigned', '1') === '1');
                                             if ($emailEnabled) {
-                                                $to = trim((string)$r['email']);
+                                                $to = trim((string) $r['email']);
                                                 if (filter_var($to, FILTER_VALIDATE_EMAIL)) {
-                                                    $staffName = trim((string)($r['firstname'] ?? '') . ' ' . (string)($r['lastname'] ?? ''));
-                                                    if ($staffName === '') $staffName = 'Agente';
-                                                    $viewUrl = (defined('APP_URL') ? APP_URL : '') . '/upload/scp/tickets.php?id=' . (int)$new_tid;
+                                                    $staffName = trim((string) ($r['firstname'] ?? '') . ' ' . (string) ($r['lastname'] ?? ''));
+                                                    if ($staffName === '')
+                                                        $staffName = 'Agente';
+                                                    $viewUrl = (defined('APP_URL') ? APP_URL : '') . '/upload/scp/tickets.php?id=' . (int) $new_tid;
                                                     $deptLabel = '';
                                                     foreach ($open_departments as $openDept) {
-                                                        if ((int)($openDept['id'] ?? 0) === (int)$dept_id) {
-                                                            $deptLabel = (string)($openDept['name'] ?? '');
+                                                        if ((int) ($openDept['id'] ?? 0) === (int) $dept_id) {
+                                                            $deptLabel = (string) ($openDept['name'] ?? '');
                                                             break;
                                                         }
                                                     }
-                                                    $subj = '[Asignación] ' . (string)$ticket_number . ' - ' . (string)$subject;
+                                                    $subj = '[Asignación] ' . (string) $ticket_number . ' - ' . (string) $subject;
                                                     $bodyHtml = '<div style="font-family: Segoe UI, sans-serif; max-width: 700px; margin: 0 auto;">'
                                                         . '<h2 style="color:#1e3a5f; margin: 0 0 8px;">Se te asignó un ticket</h2>'
                                                         . '<p style="color:#475569; margin: 0 0 12px;">Hola <strong>' . htmlspecialchars($staffName) . '</strong>, se te asignó el siguiente ticket:</p>'
                                                         . '<table style="width:100%; border-collapse: collapse; margin: 12px 0;">'
-                                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Número:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string)$ticket_number) . '</td></tr>'
-                                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Asunto:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string)$subject) . '</td></tr>'
+                                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Número:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string) $ticket_number) . '</td></tr>'
+                                                        . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Asunto:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string) $subject) . '</td></tr>'
                                                         . '<tr><td style="padding: 6px 0;"><strong>Departamento:</strong></td><td style="padding: 6px 0;">' . htmlspecialchars($deptLabel) . '</td></tr>'
                                                         . '</table>'
                                                         . '<p style="margin: 14px 0 0;"><a href="' . htmlspecialchars($viewUrl) . '" style="display:inline-block; background:#2563eb; color:#fff; padding:10px 16px; text-decoration:none; border-radius:8px;">Ver ticket</a></p>'
                                                         . '<p style="color:#94a3b8; font-size:12px; margin-top: 14px;">' . htmlspecialchars(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets') . '</p>'
                                                         . '</div>';
-                                                    $bodyText = 'Se te asignó un ticket: ' . (string)$ticket_number . "\n" . 'Asunto: ' . (string)$subject . "\n" . 'Ver: ' . $viewUrl;
+                                                    $bodyText = 'Se te asignó un ticket: ' . (string) $ticket_number . "\n" . 'Asunto: ' . (string) $subject . "\n" . 'Ver: ' . $viewUrl;
                                                     if (function_exists('enqueueEmailJob')) {
                                                         $mailOk = enqueueEmailJob($to, $subj, $bodyHtml, $bodyText, ['empresa_id' => $eid, 'context_type' => 'ticket_assigned', 'context_id' => $new_tid]);
                                                         if (function_exists('triggerEmailQueueWorkerAsync')) {
@@ -378,7 +476,7 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                                                     } else {
                                                         $mailOk = Mailer::send($to, $subj, $bodyHtml, $bodyText);
                                                         if (!$mailOk) {
-                                                            $err = (string)(Mailer::$lastError ?? 'Error desconocido');
+                                                            $err = (string) (Mailer::$lastError ?? 'Error desconocido');
                                                             addLog('ticket_assign_email_failed', $err, 'ticket', $new_tid, 'staff', $val);
                                                         }
                                                     }
@@ -396,7 +494,72 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
                             }
                         }
 
-                        notifyOrgManagersOfNewTicket($mysqli, (int)$new_tid, (int)$eid);
+                        // Si el ticket se creó sin asignar, notificar a los destinatarios de notifications_admin.php
+                        if ($staff_id === null) {
+                            $recipientStaffIds = [];
+                            $recipientEmails = [];
+                            
+                            $sqlRcpt = "SELECT s.id, s.email FROM notification_recipients nr INNER JOIN staff s ON s.id = nr.staff_id WHERE nr.empresa_id = ? AND s.is_active = 1";
+                            $stmtRcpt = $mysqli->prepare($sqlRcpt);
+                            if ($stmtRcpt) {
+                                $stmtRcpt->bind_param('i', $eid);
+                                if ($stmtRcpt->execute()) {
+                                    $rsRcpt = $stmtRcpt->get_result();
+                                    while ($rr = $rsRcpt->fetch_assoc()) {
+                                        $em = strtolower(trim((string)($rr['email'] ?? '')));
+                                        $sid = (int)($rr['id'] ?? 0);
+                                        if ($em !== '' && filter_var($em, FILTER_VALIDATE_EMAIL)) {
+                                            $recipientEmails[$em] = true;
+                                        }
+                                        if ($sid > 0) {
+                                            $recipientStaffIds[$sid] = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 1. Notificación en BD (campanita)
+                            if (!empty($recipientStaffIds)) {
+                                $msgCampana = "Nuevo ticket sin asignar #" . $ticket_number . ": " . $subject;
+                                $stmtCampana = $mysqli->prepare('INSERT INTO notifications (staff_id, message, type, related_id, is_read, created_at) VALUES (?, ?, "ticket_created", ?, 0, NOW())');
+                                if ($stmtCampana) {
+                                    foreach (array_keys($recipientStaffIds) as $sid) {
+                                        $stmtCampana->bind_param('isi', $sid, $msgCampana, $new_tid);
+                                        $stmtCampana->execute();
+                                    }
+                                }
+                            }
+
+                            // 2. Correo de notificación
+                            if (!empty($recipientEmails)) {
+                                $emailSubject = '[Nuevo ticket sin asignar] #' . (string)$ticket_number . ' - ' . (string)$subject;
+                                $viewUrl = (defined('APP_URL') ? APP_URL : '') . '/upload/scp/tickets.php?id=' . (int)$new_tid;
+                                $bodyHtml = '<div style="font-family: Segoe UI, sans-serif; max-width: 700px; margin: 0 auto;">'
+                                    . '<h2 style="color:#1e3a5f; margin: 0 0 8px;">Nuevo ticket sin asignar</h2>'
+                                    . '<p style="color:#475569; margin: 0 0 12px;">Se ha creado un nuevo ticket sin asignar en el sistema:</p>'
+                                    . '<table style="width:100%; border-collapse: collapse; margin: 12px 0;">'
+                                    . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Número:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string)$ticket_number) . '</td></tr>'
+                                    . '<tr><td style="padding: 6px 0; border-bottom:1px solid #eee;"><strong>Asunto:</strong></td><td style="padding: 6px 0; border-bottom:1px solid #eee;">' . htmlspecialchars((string)$subject) . '</td></tr>'
+                                    . '</table>'
+                                    . '<p style="margin: 14px 0 0;"><a href="' . htmlspecialchars($viewUrl) . '" style="display:inline-block; background:#2563eb; color:#fff; padding:10px 16px; text-decoration:none; border-radius:8px;">Ver ticket</a></p>'
+                                    . '<p style="color:#94a3b8; font-size:12px; margin-top: 14px;">' . htmlspecialchars(defined('APP_NAME') ? APP_NAME : 'Sistema de Tickets') . '</p>'
+                                    . '</div>';
+                                $bodyText = 'Nuevo ticket sin asignar: ' . (string)$ticket_number . "\n" . 'Asunto: ' . (string)$subject . "\n" . 'Ver: ' . $viewUrl;
+
+                                foreach (array_keys($recipientEmails) as $to) {
+                                    if (function_exists('enqueueEmailJob')) {
+                                        enqueueEmailJob($to, $emailSubject, $bodyHtml, $bodyText, ['empresa_id' => $eid, 'context_type' => 'ticket_created', 'context_id' => $new_tid]);
+                                    } else {
+                                        Mailer::send($to, $emailSubject, $bodyHtml, $bodyText);
+                                    }
+                                }
+                                if (function_exists('triggerEmailQueueWorkerAsync')) {
+                                    triggerEmailQueueWorkerAsync();
+                                }
+                            }
+                        }
+
+                        notifyOrgManagersOfNewTicket($mysqli, (int) $new_tid, (int) $eid);
                         header('Location: tickets.php?id=' . $new_tid . '&msg=created');
                         exit;
                     }
@@ -405,19 +568,11 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
             }
         }
     }
-
-    $open_departments = [];
-    $stmtOpenDept = $mysqli->prepare("SELECT id, name FROM departments WHERE empresa_id = ? AND is_active = 1 ORDER BY name");
-    if ($stmtOpenDept) {
-        $stmtOpenDept->bind_param('i', $eid);
-        if ($stmtOpenDept->execute()) {
-            $r = $stmtOpenDept->get_result();
-            if ($r) while ($row = $r->fetch_assoc()) $open_departments[] = $row;
-        }
-    }
     $open_priorities = [];
     $r = $mysqli->query("SELECT id, name FROM priorities ORDER BY level");
-    if ($r) while ($row = $r->fetch_assoc()) $open_priorities[] = $row;
+    if ($r)
+        while ($row = $r->fetch_assoc())
+            $open_priorities[] = $row;
     $open_staff = [];
     // Use staff_departments if available, otherwise fallback to legacy dept_id
     if ($hasStaffDepartmentsTable) {
@@ -438,7 +593,9 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
         }
         if ($stmtStaff->execute()) {
             $r = $stmtStaff->get_result();
-            if ($r) while ($row = $r->fetch_assoc()) $open_staff[] = $row;
+            if ($r)
+                while ($row = $r->fetch_assoc())
+                    $open_staff[] = $row;
         }
     }
 
@@ -465,13 +622,17 @@ if (isset($_GET['a']) && $_GET['a'] === 'open' && isset($_SESSION['staff_id'])) 
     if ($open_user_query !== '') {
         $term = '%' . $open_user_query . '%';
         $stmt = $mysqli->prepare(
-            "SELECT id, firstname, lastname, email, phone
-             FROM users
-             WHERE empresa_id = ? AND (firstname LIKE ? OR lastname LIKE ? OR email LIKE ? OR phone LIKE ?)
-             ORDER BY firstname, lastname
+            "SELECT u.id, u.firstname, u.lastname, u.email, u.phone
+             FROM users u
+             LEFT JOIN user_organizations uo ON u.id = uo.user_id
+             LEFT JOIN organizations o ON uo.organization_id = o.id
+             WHERE u.empresa_id = ? 
+               AND (u.firstname LIKE ? OR u.lastname LIKE ? OR u.email LIKE ? OR u.phone LIKE ? OR u.company LIKE ? OR o.name LIKE ?)
+             GROUP BY u.id
+             ORDER BY u.firstname, u.lastname
              LIMIT 25"
         );
-        $stmt->bind_param('issss', $eid, $term, $term, $term, $term);
+        $stmt->bind_param('issssss', $eid, $term, $term, $term, $term, $term, $term);
         $stmt->execute();
         $open_user_results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     }

@@ -74,6 +74,54 @@ $allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <script>
+        window.HIDE_URLS = <?php echo defined('HIDE_URLS') && HIDE_URLS ? 'true' : 'false'; ?>;
+        
+        var originalPushState = history.pushState;
+        var originalReplaceState = history.replaceState;
+        
+        function getMaskedUrl(url) {
+            if (!window.HIDE_URLS || !url) return url;
+            try {
+                var a = document.createElement('a');
+                a.href = url;
+                var scpIndex = a.pathname.indexOf('/scp/');
+                var basePath = scpIndex !== -1 ? a.pathname.substring(0, scpIndex + 5) : '/';
+                return basePath + 'tickets.php#';
+            } catch(e) { return url; }
+        }
+        
+        history.pushState = function(state, title, url) {
+            return originalPushState.call(history, state, title, getMaskedUrl(url));
+        };
+        
+        history.replaceState = function(state, title, url) {
+            return originalReplaceState.call(history, state, title, getMaskedUrl(url));
+        };
+
+        if (window.HIDE_URLS) {
+            var currentActualUrl = window.location.pathname + window.location.search;
+            var genericPage = 'tickets.php';
+            var isGeneric = window.location.pathname.indexOf(genericPage) !== -1;
+            
+            var savedUrl = null;
+            try { savedUrl = sessionStorage.getItem('scpCurrentUrl'); } catch(e) {}
+            
+            if (isGeneric && savedUrl && savedUrl.indexOf(genericPage) === -1) {
+                var isReload = false;
+                if (window.performance && window.performance.navigation) {
+                    isReload = window.performance.navigation.type === 1;
+                }
+                if (isReload) {
+                    window.location.replace(savedUrl);
+                }
+            } else if (!isGeneric) {
+                try { sessionStorage.setItem('scpCurrentUrl', currentActualUrl); } catch(e) {}
+            }
+            
+            try { originalReplaceState.call(history, { scpUrl: currentActualUrl }, '', getMaskedUrl(window.location.href)); } catch (e) {}
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#b91c1c">
@@ -81,33 +129,19 @@ $allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
     <link rel="icon" type="image/x-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/favicon.ico">
     <link rel="apple-touch-icon" href="<?php echo (defined('APP_URL') ? rtrim((string)APP_URL, '/') : ''); ?>/publico/img/pwa/apple-touch-icon-180x180.png">
     <title>Panel Agente - <?php echo APP_NAME; ?></title>
+    <?php
+    echo renderOpenGraphTags([
+        'title'       => 'Panel de Gestión y Soporte Técnico',
+        'description' => 'Sistema centralizado de helpdesk, administración de tickets y seguimiento de servicios técnicos.',
+    ]);
+    ?>
     <!-- Bootstrap CSS local (sin latencia CDN) -->
     <link rel="stylesheet" href="css/vendor/bootstrap.min.css">
     <!-- Bootstrap Icons local + font-display:swap -->
     <link rel="stylesheet" href="css/vendor/bootstrap-icons.css">
     <style>@font-face{font-family:"bootstrap-icons";src:url("css/vendor/fonts/bootstrap-icons.woff2") format("woff2"),url("css/vendor/fonts/bootstrap-icons.woff") format("woff");font-display:swap}</style>
     <link rel="stylesheet" href="css/scp.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/scp.css'); ?>">
-    <?php if (isset($currentRoute) && $currentRoute === 'dashboard'): ?>
-    <link rel="stylesheet" href="css/dashboard.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/dashboard.css'); ?>">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'profile'): ?>
-    <link rel="stylesheet" href="css/profile.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/profile.css'); ?>">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'users'): ?>
-    <link rel="stylesheet" href="css/users.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/users.css'); ?>">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && in_array($currentRoute, ['tickets', 'reportes', 'informes_jefes', 'cotizaciones'])): ?>
-    <link rel="stylesheet" href="css/tickets.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/tickets.css'); ?>">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'tickets'): ?>
-    <link rel="stylesheet" href="css/vendor/summernote-lite.min.css">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'orgs'): ?>
-    <link rel="stylesheet" href="css/orgs.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/orgs.css'); ?>">
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'tasks'): ?>
-    <link rel="stylesheet" href="css/tasks.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/tasks.css'); ?>">
-    <?php endif; ?>
+    <?php require __DIR__ . '/../partials/route-css.inc.php'; ?>
     <link rel="stylesheet" href="css/dark.css?v=<?php echo (int)@filemtime(__DIR__ . '/../css/dark.css'); ?>">
 </head>
 <?php
@@ -115,7 +149,7 @@ $allowExpandedGroups = (!$sidebarDefaultCollapsed && !$collapseSidebarMenu);
 $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
 ?>
 <?php $userActiveTab = (isset($currentRoute) && $currentRoute === 'users') ? (isset($_GET['t']) ? htmlspecialchars($_GET['t'], ENT_QUOTES, 'UTF-8') : 'tickets') : ''; ?>
-<body class="scp-panel<?php echo $sidebarDefaultCollapsed ? ' sidebar-collapsed' : ''; ?><?php echo $isDarkMode ? ' dark-mode' : ''; ?>" data-sidebar-default="<?php echo $sidebarDefaultCollapsed ? 'collapsed' : 'expanded'; ?>"<?php if ($userActiveTab !== ''): ?> data-user-active-tab="<?php echo $userActiveTab; ?>"<?php endif; ?>>
+<body class="scp-panel<?php echo $sidebarDefaultCollapsed ? ' sidebar-collapsed' : ''; ?><?php echo $isDarkMode ? ' dark-mode' : ''; ?>" data-panel="agent" data-sidebar-default="<?php echo $sidebarDefaultCollapsed ? 'collapsed' : 'expanded'; ?>" data-sidebar-first="<?php echo $collapseSidebarMenu ? '1' : '0'; ?>"<?php if ($userActiveTab !== ''): ?> data-user-active-tab="<?php echo $userActiveTab; ?>"<?php endif; ?>>
     <?php $showOverlay = !empty($_SESSION['show_agent_loading_overlay']); ?>
     <?php if ($showOverlay): ?>
         <style>
@@ -485,6 +519,20 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                         </a>
                     </li>
                     <?php endif; ?>
+                    <?php if (roleHasPermission('requisitions.view')): ?>
+                    <li class="sidebar-group">
+                        <a href="requisitions.php" class="sidebar-link <?php echo ($currentRoute === 'requisitions') ? 'active' : ''; ?>">
+                            <span class="icon">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="<?php echo ($currentRoute === 'requisitions') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M3.27 6.96L12 12.01l8.73-5.05" stroke="<?php echo ($currentRoute === 'requisitions') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M12 22.08V12" stroke="<?php echo ($currentRoute === 'requisitions') ? '#ffffff' : '#9ca3af'; ?>" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
+                            Inventario
+                        </a>
+                    </li>
+                    <?php endif; ?>
                     <?php
                     $canViewUsers = roleHasPermission('user.view');
                     $canViewOrgs = roleHasPermission('org.view');
@@ -628,7 +676,9 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
                     </div>
                     <?php unset($_SESSION['flash_msg']); ?>
                 <?php endif; ?>
-                <?php echo $content; ?>
+                <div id="scpMainContent">
+                    <?php echo $content; ?>
+                </div>
             </div>
         </main>
     </div>
@@ -724,8 +774,9 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
         <a id="customPopLink" href="#" class="n-btn">Ver solicitud</a>
     </div>
 
-    <script src="js/vendor/bootstrap.bundle.min.js" defer></script>
-    <script src="js/scp.js" defer></script>
+    <script src="js/vendor/bootstrap.bundle.min.js"></script>
+    <script src="js/scp.js"></script>
+    <script src="js/spa-nav.js?v=<?php echo (int)@filemtime(__DIR__ . '/../js/spa-nav.js'); ?>"></script>
     <script>
         // Inicializar objeto de audio global para evadir políticas de Autoplay del navegador
         window.scpNotificationAudio = new Audio('../../publico/audio/notification.mp3');
@@ -883,28 +934,7 @@ $isDarkMode = (string)($_SESSION['scp_dark_mode'] ?? '0') === '1';
             });
         });
     </script>
-    <?php if (isset($currentRoute) && $currentRoute === 'profile'): ?>
-    <script src="js/profile.js"></script>
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'users'): ?>
-    <script src="js/users.js"></script>
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'dashboard'): ?>
-    <script src="js/vendor/chart.umd.min.js"></script>
-    <script src="js/dashboard.js?v=<?php echo (int)@filemtime(__DIR__ . '/../js/dashboard.js'); ?>"></script>
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'tickets'): ?>
-    <script src="js/vendor/jquery-3.6.0.min.js" defer></script>
-    <script src="js/vendor/summernote-lite.min.js" defer></script>
-    <script src="js/vendor/summernote-es-ES.min.js" defer></script>
-    <script src="js/tickets.js" defer></script>
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'tasks'): ?>
-    <script src="js/tasks.js"></script>
-    <?php endif; ?>
-    <?php if (isset($currentRoute) && $currentRoute === 'orgs'): ?>
-    <script src="js/orgs.js"></script>
-    <?php endif; ?>
+    <?php require __DIR__ . '/../partials/route-scripts.inc.php'; ?>
     <?php
     $maxLoadedId = 0;
     if (isset($notifItems) && is_array($notifItems) && !empty($notifItems)) {
