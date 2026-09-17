@@ -22,13 +22,8 @@ services:
     container_name: mysql_app
     restart: always
 
-    environment:
-      MYSQL_ROOT_PASSWORD: AdminV_RootPass2026!
-
-      MYSQL_DATABASE: tickets_db
-
-      MYSQL_USER: AdminV
-      MYSQL_PASSWORD: Panama2626.
+    env_file:
+      - .env
 
     ports:
       - "127.0.0.1:3307:3306"
@@ -47,7 +42,7 @@ services:
     environment:
       PMA_HOST: db
       PMA_USER: root
-      PMA_PASSWORD: AdminV_RootPass2026!
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-AdminV_RootPass2026!}
 
     depends_on:
       - db

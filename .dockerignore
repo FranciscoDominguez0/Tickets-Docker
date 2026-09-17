@@ -1,6 +1,7 @@
 .git
 .gitignore
 .dockerignore
+.env
 Dockerfile
 compose.yaml
 README.md

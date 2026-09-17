@@ -56,7 +56,14 @@ RUN echo "expose_php=Off" > /usr/local/etc/php/conf.d/security.ini && \
 RUN a2enmod rewrite headers deflate
 
 RUN echo "ServerTokens Prod" >> /etc/apache2/apache2.conf && \
-    echo "ServerSignature Off" >> /etc/apache2/apache2.conf
+    echo "ServerSignature Off" >> /etc/apache2/apache2.conf && \
+    echo "<Directory /var/www/>" >> /etc/apache2/apache2.conf && \
+    echo "    Options -Indexes" >> /etc/apache2/apache2.conf && \
+    echo "    AllowOverride All" >> /etc/apache2/apache2.conf && \
+    echo "</Directory>" >> /etc/apache2/apache2.conf && \
+    echo "<FilesMatch \"^\.\">" >> /etc/apache2/apache2.conf && \
+    echo "    Require all denied" >> /etc/apache2/apache2.conf && \
+    echo "</FilesMatch>" >> /etc/apache2/apache2.conf
 
 # =========================
 # COPIAR PROYECTO
