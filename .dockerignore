@@ -5,7 +5,7 @@
 Dockerfile
 compose.yaml
 README.md
-vendor/
+app/sistema-tickets/vendor/
 node_modules/
 tests/
 *.log

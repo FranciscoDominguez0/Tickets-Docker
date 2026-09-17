@@ -1,0 +1,5 @@
+# Dar permisos a la carpeta de firmas
+sudo chmod -R 777 app/sistema-tickets/firmas
+
+# Dar permisos a la carpeta de adjuntos (uploads)
+sudo chmod -R 777 app/sistema-tickets/upload
